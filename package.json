@@ -1,0 +1,12 @@
+{
+  "name": "lawn-crm",
+  "version": "1.0.0",
+  "description": "Personal CRM for landscaping & lawn care",
+  "scripts": {
+    "start": "serve . -l ${PORT:-3000}",
+    "dev": "serve . -l 3400"
+  },
+  "dependencies": {
+    "serve": "^14.2.4"
+  }
+}
