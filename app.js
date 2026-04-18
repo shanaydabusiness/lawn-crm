@@ -14,6 +14,7 @@ let state = {
   calendarMonth: new Date().getMonth(),
   calendarYear: new Date().getFullYear(),
   calendarSelectedDay: null,
+  expensesPeriod: 'monthly',
   expensesMonth: new Date().getMonth(),
   expensesYear: new Date().getFullYear(),
   editingExpenseId: null,
@@ -32,6 +33,17 @@ const EXPENSE_CATEGORIES = [
   { id: 'marketing', label: 'Marketing', emoji: '📣' },
   { id: 'other', label: 'Other', emoji: '📦' },
 ];
+
+const EXPENSE_CAT_COLORS = {
+  equipment: '#6366f1',
+  fuel:      '#f59e0b',
+  labor:     '#10b981',
+  insurance: '#3b82f6',
+  software:  '#8b5cf6',
+  supplies:  '#ec4899',
+  marketing: '#f97316',
+  other:     '#94a3b8',
+};
 
 function loadData() {
   try {
@@ -1577,172 +1589,190 @@ function renderExpenseFormPanel(exp = {}) {
 
 function renderExpenses() {
   const data = getData();
-  const year = state.expensesYear;
-  const month = state.expensesMonth;
-  const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
-  const firstDay = new Date(year, month, 1);
-  const totalDays = new Date(year, month + 1, 0).getDate();
-  const startDow = firstDay.getDay();
-  const monthName = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const today = todayISO();
-
   const allExpenses = data.expenses || [];
-  const monthExps = getMonthExpenses(allExpenses, monthPrefix);
+  const now = new Date();
+  const period = state.expensesPeriod || 'monthly';
+  const year  = state.expensesYear  || now.getFullYear();
+  const month = state.expensesMonth !== undefined ? state.expensesMonth : now.getMonth();
 
-  const totalIncome = monthExps.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0);
-  const totalExpenses = monthExps.filter(e => e.type !== 'income').reduce((s, e) => s + e.amount, 0);
-  const net = totalIncome - totalExpenses;
-
-  // Day map for calendar
-  const dayMap = {};
-  for (const exp of monthExps) {
-    const key = (exp.date || '').slice(0, 10);
-    if (!dayMap[key]) dayMap[key] = [];
-    dayMap[key].push(exp);
+  // ── Period bounds ──
+  let periodExps = [], periodLabel = '', prevLabel = '', nextLabel = '';
+  if (period === 'weekly') {
+    const today = new Date(todayISO() + 'T12:00:00');
+    const dow = today.getDay();
+    const weekStart = new Date(today); weekStart.setDate(today.getDate() - ((dow + 6) % 7));
+    const weekEnd   = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+    const wsISO = weekStart.toISOString().slice(0,10);
+    const weISO = weekEnd.toISOString().slice(0,10);
+    periodExps = allExpenses.filter(e => e.date >= wsISO && e.date <= weISO);
+    periodLabel = `${weekStart.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${weekEnd.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`;
+  } else if (period === 'monthly') {
+    const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}`;
+    periodExps = allExpenses.filter(e => (e.date||'').slice(0,7) === monthPrefix);
+    periodLabel = new Date(year, month, 1).toLocaleDateString('en-US',{month:'long',year:'numeric'});
+    const pm = month === 0 ? new Date(year-1,11,1) : new Date(year,month-1,1);
+    const nm = month === 11 ? new Date(year+1,0,1) : new Date(year,month+1,1);
+    prevLabel = pm.toLocaleDateString('en-US',{month:'short'});
+    nextLabel = nm.toLocaleDateString('en-US',{month:'short'});
+  } else { // annually
+    periodExps = allExpenses.filter(e => (e.date||'').startsWith(String(year)));
+    periodLabel = String(year);
+    prevLabel = String(year-1);
+    nextLabel = String(year+1);
   }
 
-  // Calendar grid
-  const weeks = [];
-  let week = [];
-  for (let i = 0; i < startDow; i++) week.push(null);
-  for (let d = 1; d <= totalDays; d++) {
-    week.push(d);
-    if (week.length === 7) { weeks.push(week); week = []; }
+  const income   = periodExps.filter(e=>e.type==='income').reduce((s,e)=>s+e.amount,0);
+  const expenses = periodExps.filter(e=>e.type!=='income').reduce((s,e)=>s+e.amount,0);
+  const net = income - expenses;
+
+  // ── Category breakdown ──
+  const catTotals = {};
+  for (const e of periodExps.filter(e=>e.type!=='income')) {
+    const k = e.category || 'other';
+    catTotals[k] = (catTotals[k]||0) + e.amount;
   }
-  if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week); }
+  const catRows = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+  const maxCat  = catRows.length > 0 ? catRows[0][1] : 1;
 
-  const dowLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let calHTML = `<div class="exp-cal-dow">${dowLabels.map(h => `<div>${h}</div>`).join('')}</div>`;
-
-  for (const wk of weeks) {
-    calHTML += `<div class="exp-cal-week">`;
-    for (const d of wk) {
-      if (!d) { calHTML += `<div class="exp-cal-cell exp-cal-empty"></div>`; continue; }
-      const key = `${monthPrefix}-${String(d).padStart(2, '0')}`;
-      const dayExps = dayMap[key] || [];
-      const isToday = key === today;
-      const expAmt = dayExps.filter(e => e.type !== 'income').reduce((s, e) => s + e.amount, 0);
-      const incAmt = dayExps.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0);
-      const hasExp = expAmt > 0;
-      const hasInc = incAmt > 0;
-      calHTML += `
-        <div class="exp-cal-cell ${isToday ? 'exp-today' : ''} ${hasExp ? 'exp-has-expense' : ''} ${hasInc && !hasExp ? 'exp-has-income' : ''}" data-exp-day="${key}">
-          <span class="exp-cal-num">${d}</span>
-          ${dayExps.length > 0 ? `<span class="exp-cal-count">${dayExps.length}</span>` : ''}
-          ${expAmt > 0 ? `<div class="exp-cal-amt exp-amt-expense">$${expAmt % 1 === 0 ? expAmt : expAmt.toFixed(2)}</div>` : ''}
-          ${incAmt > 0 ? `<div class="exp-cal-amt exp-amt-income">+$${incAmt % 1 === 0 ? incAmt : incAmt.toFixed(2)}</div>` : ''}
-        </div>`;
+  // Monthly avg per category (use last 3 months of data for avg)
+  const catAvg = {};
+  if (period !== 'weekly') {
+    const months = period === 'annually' ? 12 : 3;
+    for (let i = 0; i < months; i++) {
+      let y = year, m2 = month - i;
+      if (m2 < 0) { m2 += 12; y--; }
+      const pfx = `${y}-${String(m2+1).padStart(2,'0')}`;
+      for (const e of allExpenses.filter(e2=>(e2.date||'').slice(0,7)===pfx && e2.type!=='income')) {
+        const k = e.category||'other';
+        catAvg[k] = (catAvg[k]||0) + e.amount;
+      }
     }
-    calHTML += `</div>`;
+    for (const k in catAvg) catAvg[k] = catAvg[k] / (period === 'annually' ? 12 : 3);
   }
 
-  // Transaction list
-  const sorted = [...monthExps].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const listHTML = sorted.length === 0
-    ? `<div class="dash-empty">No transactions this month.</div>`
-    : sorted.map(exp => {
-        const cat = EXPENSE_CATEGORIES.find(c => c.id === exp.category);
-        const isEditing = state.editingExpenseId === exp.id;
+  const catBreakdownHTML = catRows.length === 0
+    ? `<div class="exp2-empty">No expenses this period.</div>`
+    : catRows.map(([catId, total]) => {
+        const cat   = EXPENSE_CATEGORIES.find(c=>c.id===catId);
+        const color = EXPENSE_CAT_COLORS[catId] || '#94a3b8';
+        const pct   = Math.round((total/maxCat)*100);
+        const avg   = catAvg[catId];
         return `
-          <div class="exp-list-item ${isEditing ? 'exp-list-editing' : ''}">
-            <div class="exp-list-info">
-              <div class="exp-list-name-row">
-                <span class="exp-list-name">${escHtml(exp.description || cat?.label || 'Transaction')}</span>
-                <span class="exp-type-badge ${exp.type === 'income' ? 'exp-type-income' : 'exp-type-expense'}">${exp.type === 'income' ? 'income' : 'expense'}</span>
-                ${cat ? `<span class="exp-cat-badge">${cat.label}</span>` : ''}
-                ${exp.recurring ? `<span class="exp-cat-badge">Recurring</span>` : ''}
+          <div class="exp2-cat-row">
+            <div class="exp2-cat-dot" style="background:${color}"></div>
+            <div class="exp2-cat-info">
+              <div class="exp2-cat-top">
+                <span class="exp2-cat-name">${cat?.emoji || ''} ${cat?.label || catId}</span>
+                <span class="exp2-cat-amt">${formatCurrency(total)}</span>
               </div>
-              <div class="exp-list-meta"><span>${formatDate(exp.date)}</span></div>
-            </div>
-            <div class="exp-list-right">
-              <div class="exp-list-amount ${exp.type === 'income' ? 'exp-income' : 'exp-expense'}">
-                ${exp.type === 'income' ? '+' : '-'}${formatCurrency(exp.amount)}
+              <div class="exp2-bar-track">
+                <div class="exp2-bar-fill" style="width:${pct}%;background:${color}"></div>
               </div>
-              ${!exp.isRecurringInstance ? `
-                <div class="exp-list-actions">
-                  <button class="edit-btn" data-edit-expense="${exp.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                  <button class="delete-btn" data-delete-expense="${exp.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
-                </div>` : ''}
+              ${avg !== undefined ? `<div class="exp2-cat-avg">avg ${formatCurrency(avg)}/mo</div>` : ''}
             </div>
           </div>`;
       }).join('');
 
-  const editingExp = state.editingExpenseId
-    ? (allExpenses.find(e => e.id === state.editingExpenseId) || {})
-    : {};
+  // ── Transaction list ──
+  const sorted = [...periodExps].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  // Group by date
+  const dateGroups = {};
+  for (const e of sorted) {
+    const k = (e.date||'').slice(0,10);
+    if (!dateGroups[k]) dateGroups[k] = [];
+    dateGroups[k].push(e);
+  }
+
+  const txHTML = Object.keys(dateGroups).length === 0
+    ? `<div class="exp2-empty">No transactions this period.</div>`
+    : Object.entries(dateGroups).map(([date, exps]) => {
+        const dayTotal = exps.reduce((s,e)=>s+(e.type==='income'?e.amount:-e.amount),0);
+        const rows = exps.map(e => {
+          const cat   = EXPENSE_CATEGORIES.find(c=>c.id===e.category);
+          const color = EXPENSE_CAT_COLORS[e.category] || '#94a3b8';
+          return `
+            <div class="exp2-tx-row">
+              <div class="exp2-tx-dot" style="background:${e.type==='income'?'var(--green-primary)':color}"></div>
+              <div class="exp2-tx-info">
+                <span class="exp2-tx-name">${escHtml(e.description||cat?.label||'Transaction')}</span>
+                <span class="exp2-tx-cat">${cat?.label||''}</span>
+              </div>
+              <div class="exp2-tx-right">
+                <span class="exp2-tx-amt ${e.type==='income'?'income':'expense'}">${e.type==='income'?'+':'−'}${formatCurrency(e.amount)}</span>
+                <button class="exp2-tx-edit" data-edit-expense="${e.id}" title="Edit">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+              </div>
+            </div>`;
+        }).join('');
+        return `
+          <div class="exp2-date-group">
+            <div class="exp2-date-header">
+              <span class="exp2-date-label">${formatDate(date)}</span>
+              <span class="exp2-date-net ${dayTotal>=0?'income':'expense'}">${dayTotal>=0?'+':''}${formatCurrency(dayTotal)}</span>
+            </div>
+            ${rows}
+          </div>`;
+      }).join('');
+
+  // ── Nav buttons ──
+  const showNav = period !== 'weekly';
+  const navHTML = showNav ? `
+    <div class="exp2-period-nav">
+      <button class="exp2-nav-btn" id="exp-prev">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        ${prevLabel}
+      </button>
+      <span class="exp2-period-label">${periodLabel}</span>
+      <button class="exp2-nav-btn" id="exp-next">
+        ${nextLabel}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>` : `<div class="exp2-period-label-center">${periodLabel}</div>`;
 
   return `
-    <div class="exp-page-header">
-      <div>
-        <h1 class="exp-page-title">Expense Tracker</h1>
-        <p class="exp-page-sub">Track fees, tools, fuel, and business costs</p>
+    <div class="page-header">
+      <h1>Expenses</h1>
+      <button class="btn btn-primary" id="exp-add-mobile-btn" style="padding:8px 16px;font-size:13px">+ Add</button>
+    </div>
+
+    <div class="exp2-period-tabs">
+      <button class="exp2-tab ${period==='weekly'?'active':''}"  data-exp-period="weekly">Week</button>
+      <button class="exp2-tab ${period==='monthly'?'active':''}" data-exp-period="monthly">Month</button>
+      <button class="exp2-tab ${period==='annually'?'active':''}" data-exp-period="annually">Year</button>
+    </div>
+
+    ${navHTML}
+
+    <div class="exp2-cashflow">
+      <div class="exp2-cf-card income">
+        <div class="exp2-cf-label">Money In</div>
+        <div class="exp2-cf-value">${formatCurrency(income)}</div>
+      </div>
+      <div class="exp2-cf-arrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="exp2-cf-card expense">
+        <div class="exp2-cf-label">Money Out</div>
+        <div class="exp2-cf-value">${formatCurrency(expenses)}</div>
+      </div>
+      <div class="exp2-cf-arrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="exp2-cf-card ${net>=0?'net-pos':'net-neg'}">
+        <div class="exp2-cf-label">Net</div>
+        <div class="exp2-cf-value">${net>=0?'+':''}${formatCurrency(net)}</div>
       </div>
     </div>
 
-    <div class="exp-stats-row">
-      <div class="exp-stat-card">
-        <div class="exp-stat-card-inner">
-          <div>
-            <div class="exp-stat-card-label">Total Income</div>
-            <div class="exp-stat-card-value exp-income">+${formatCurrency(totalIncome)}</div>
-          </div>
-          <div class="exp-stat-icon exp-stat-icon-income">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-          </div>
-        </div>
-      </div>
-      <div class="exp-stat-card">
-        <div class="exp-stat-card-inner">
-          <div>
-            <div class="exp-stat-card-label">Total Expenses</div>
-            <div class="exp-stat-card-value exp-expense">-${formatCurrency(totalExpenses)}</div>
-          </div>
-          <div class="exp-stat-icon exp-stat-icon-expense">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>
-          </div>
-        </div>
-      </div>
-      <div class="exp-stat-card">
-        <div class="exp-stat-card-inner">
-          <div>
-            <div class="exp-stat-card-label">Net P&amp;L</div>
-            <div class="exp-stat-card-value ${net >= 0 ? 'exp-income' : 'exp-expense'}">${net >= 0 ? '+' : ''}${formatCurrency(net)}</div>
-          </div>
-          <div class="exp-stat-icon exp-stat-icon-net">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          </div>
-        </div>
-      </div>
+    <div class="exp2-section">
+      <div class="exp2-section-title">By Category</div>
+      <div class="exp2-cat-list">${catBreakdownHTML}</div>
     </div>
 
-    <div class="exp-layout">
-      <div class="exp-main">
-        <div class="exp-cal-section">
-          <div class="exp-cal-header">
-            <span class="exp-cal-title">Expense Calendar</span>
-            <div class="exp-cal-nav-group">
-              <button class="cal-nav-btn" id="exp-prev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
-              <span class="cal-month-label">${monthName}</span>
-              <button class="cal-nav-btn" id="exp-next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>
-            </div>
-          </div>
-          <div class="exp-calendar">${calHTML}</div>
-        </div>
-
-        <div class="exp-list-section">
-          <div class="exp-list-header">
-            <span>All Transactions</span>
-            <button class="icon-btn" id="exp-add-mobile-btn" title="Add transaction">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:15px;height:15px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </button>
-          </div>
-          ${listHTML}
-        </div>
-      </div>
-
-      <div class="exp-form-panel" id="exp-form-panel">
-        ${renderExpenseFormPanel(editingExp)}
-      </div>
+    <div class="exp2-section">
+      <div class="exp2-section-title">Transactions</div>
+      <div class="exp2-tx-list">${txHTML}</div>
     </div>
 
     <div class="spacer"></div>`;
@@ -2845,27 +2875,39 @@ function bindContentEvents() {
 
   // ===== EXPENSE EVENTS =====
 
-  // Month navigation
-  content.querySelector('#exp-prev')?.addEventListener('click', () => {
-    state.expensesMonth--;
-    if (state.expensesMonth < 0) { state.expensesMonth = 11; state.expensesYear--; }
-    render();
-  });
-  content.querySelector('#exp-next')?.addEventListener('click', () => {
-    state.expensesMonth++;
-    if (state.expensesMonth > 11) { state.expensesMonth = 0; state.expensesYear++; }
-    render();
-  });
-
-  // Click day to set date in form
-  content.querySelectorAll('[data-exp-day]').forEach(cell => {
-    cell.addEventListener('click', () => {
-      const dateEl = document.getElementById('ef-date');
-      if (dateEl) dateEl.value = cell.dataset.expDay;
+  // Expense period tabs
+  content.querySelectorAll('[data-exp-period]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.expensesPeriod = btn.dataset.expPeriod;
+      // Reset to current month/year when switching
+      const now = new Date();
+      state.expensesMonth = now.getMonth();
+      state.expensesYear  = now.getFullYear();
+      render();
     });
   });
 
-  // Mobile add button → modal
+  // Expense period nav prev/next
+  content.querySelector('#exp-prev')?.addEventListener('click', () => {
+    if (state.expensesPeriod === 'monthly') {
+      state.expensesMonth--;
+      if (state.expensesMonth < 0) { state.expensesMonth = 11; state.expensesYear--; }
+    } else {
+      state.expensesYear--;
+    }
+    render();
+  });
+  content.querySelector('#exp-next')?.addEventListener('click', () => {
+    if (state.expensesPeriod === 'monthly') {
+      state.expensesMonth++;
+      if (state.expensesMonth > 11) { state.expensesMonth = 0; state.expensesYear++; }
+    } else {
+      state.expensesYear++;
+    }
+    render();
+  });
+
+  // Add expense button
   content.querySelector('#exp-add-mobile-btn')?.addEventListener('click', () => {
     openModal('expense-form', {});
   });
@@ -2882,20 +2924,12 @@ function bindContentEvents() {
     render();
   });
 
-  // Edit expense — desktop: populate panel; mobile: open modal
+  // Edit expense — open modal
   content.querySelectorAll('[data-edit-expense]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.editExpense;
-      const isMobile = window.innerWidth < 768;
-      if (isMobile) {
-        const exp = getData().expenses.find(e => e.id === id) || {};
-        openModal('expense-form', exp);
-      } else {
-        state.editingExpenseId = state.editingExpenseId === id ? null : id;
-        render();
-        // Scroll form panel into view
-        setTimeout(() => document.getElementById('exp-form-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
-      }
+      const exp = getData().expenses.find(e => e.id === id) || {};
+      openModal('expense-form', exp);
     });
   });
 

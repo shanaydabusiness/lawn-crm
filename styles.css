@@ -2259,6 +2259,104 @@ html, body {
   .exp-list-item { padding: 18px 28px; }
 }
 
+/* ===== EXPENSES v2 ===== */
+.exp2-period-tabs {
+  display: flex; gap: 6px; padding: 0 16px 12px;
+}
+.exp2-tab {
+  flex: 1; padding: 8px; border: 1.5px solid var(--border);
+  border-radius: var(--radius-pill); background: none;
+  font-size: 13px; font-weight: 600; color: var(--text-muted);
+  cursor: pointer; transition: all 0.15s;
+}
+.exp2-tab.active { background: var(--green-primary); border-color: var(--green-primary); color: white; }
+.exp2-tab:hover:not(.active) { border-color: var(--green-primary); color: var(--green-primary); }
+
+.exp2-period-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px 12px;
+}
+.exp2-period-label { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.exp2-period-label-center { text-align: center; font-size: 15px; font-weight: 700; color: var(--text-primary); padding: 0 16px 12px; }
+.exp2-nav-btn {
+  display: flex; align-items: center; gap: 4px;
+  background: none; border: none; color: var(--text-muted);
+  font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 8px;
+  border-radius: var(--radius); transition: all 0.15s;
+}
+.exp2-nav-btn:hover { color: var(--green-primary); background: var(--green-pale); }
+.exp2-nav-btn svg { width: 16px; height: 16px; }
+
+.exp2-cashflow {
+  display: flex; align-items: center; gap: 0;
+  margin: 0 16px 16px; background: var(--white);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.exp2-cf-card {
+  flex: 1; padding: 16px 12px; text-align: center;
+}
+.exp2-cf-card.income { border-left: 3px solid var(--green-primary); }
+.exp2-cf-card.expense { border-left: 3px solid var(--danger); }
+.exp2-cf-card.net-pos { border-left: 3px solid #6366f1; }
+.exp2-cf-card.net-neg { border-left: 3px solid var(--danger); }
+.exp2-cf-arrow { color: var(--border); flex-shrink: 0; }
+.exp2-cf-arrow svg { width: 16px; height: 16px; }
+.exp2-cf-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: 4px; }
+.exp2-cf-value { font-size: 18px; font-weight: 800; color: var(--text-primary); }
+.exp2-cf-card.income .exp2-cf-value { color: var(--green-primary); }
+.exp2-cf-card.expense .exp2-cf-value { color: var(--danger); }
+.exp2-cf-card.net-pos .exp2-cf-value { color: #6366f1; }
+.exp2-cf-card.net-neg .exp2-cf-value { color: var(--danger); }
+
+.exp2-section { margin: 0 16px 20px; }
+.exp2-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: 10px; }
+
+.exp2-cat-list { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 8px 0; }
+.exp2-cat-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; }
+.exp2-cat-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.exp2-cat-info { flex: 1; min-width: 0; }
+.exp2-cat-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+.exp2-cat-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.exp2-cat-amt { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.exp2-bar-track { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 3px; }
+.exp2-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.exp2-cat-avg { font-size: 10px; color: var(--text-muted); }
+
+.exp2-tx-list { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
+.exp2-date-group { border-bottom: 1px solid var(--border); }
+.exp2-date-group:last-child { border-bottom: none; }
+.exp2-date-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px 4px; background: var(--bg); }
+.exp2-date-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.exp2-date-net { font-size: 12px; font-weight: 700; }
+.exp2-date-net.income { color: var(--green-primary); }
+.exp2-date-net.expense { color: var(--danger); }
+.exp2-tx-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; transition: background 0.12s; }
+.exp2-tx-row:hover { background: var(--off-white); }
+.exp2-tx-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.exp2-tx-info { flex: 1; min-width: 0; }
+.exp2-tx-name { font-size: 13px; font-weight: 600; color: var(--text-primary); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exp2-tx-cat { font-size: 11px; color: var(--text-muted); }
+.exp2-tx-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.exp2-tx-amt { font-size: 13px; font-weight: 700; }
+.exp2-tx-amt.income { color: var(--green-primary); }
+.exp2-tx-amt.expense { color: var(--danger); }
+.exp2-tx-edit {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: none; background: none; color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.15s; flex-shrink: 0;
+}
+.exp2-tx-edit:hover { background: var(--green-pale); color: var(--green-primary); }
+.exp2-tx-edit svg { width: 13px; height: 13px; }
+.exp2-empty { padding: 20px 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+@media (min-width: 768px) {
+  .exp2-period-tabs, .exp2-period-nav, .exp2-section { padding-left: 24px; padding-right: 24px; }
+  .exp2-cashflow { margin-left: 24px; margin-right: 24px; }
+  .exp2-cf-value { font-size: 22px; }
+}
+
 /* ===== SETTINGS VIEW ===== */
 .settings-list {
   padding: 12px 16px;
