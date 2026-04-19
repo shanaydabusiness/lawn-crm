@@ -15,6 +15,7 @@ let state = {
   calendarYear: new Date().getFullYear(),
   calendarSelectedDay: null,
   expensesPeriod: '3M',
+  expensesFilter: 'expenses',
   editingExpenseId: null,
   dashCalMonth: new Date().getMonth(),
   dashCalYear: new Date().getFullYear(),
@@ -1856,10 +1857,20 @@ function renderExpenses() {
           <span class="cf-exp-pct">${d.pct}%</span>
         </div>`).join('');
 
-  // Transactions table rows
-  const txHtml = cd.transactions.length === 0
-    ? `<tr><td colspan="5" class="cf-td-empty">No transactions this period.</td></tr>`
-    : cd.transactions.slice(0, 60).map(tx => `
+  // Transactions — filter
+  const txFilter = state.expensesFilter || 'expenses';
+  const TX_FILTERS = [
+    { id: 'expenses', label: 'Expenses' },
+    { id: 'revenue',  label: 'Revenue'  },
+    { id: 'all',      label: 'All'      },
+  ];
+  const filteredTx = txFilter === 'all'      ? cd.transactions
+    : txFilter === 'expenses' ? cd.transactions.filter(tx => !tx.isInflow)
+    :                           cd.transactions.filter(tx =>  tx.isInflow);
+
+  const txHtml = filteredTx.length === 0
+    ? `<tr><td colspan="5" class="cf-td-empty">No ${txFilter === 'all' ? '' : txFilter + ' '}transactions this period.</td></tr>`
+    : filteredTx.slice(0, 60).map(tx => `
         <tr>
           <td class="cf-td-date">${formatDate(tx.date)}</td>
           <td class="cf-td-desc">${escHtml(tx.description)}</td>
@@ -1965,7 +1976,10 @@ function renderExpenses() {
       <div class="cf-card">
         <div class="cf-card-head">
           <span class="cf-card-title">Transactions</span>
-          <span class="cf-card-meta">${cd.transactions.length} entries</span>
+          <div class="cf-tx-filters">
+            ${TX_FILTERS.map(f => `<button class="cf-tx-filter-btn${txFilter === f.id ? ' active' : ''}" data-tx-filter="${f.id}">${f.label}</button>`).join('')}
+          </div>
+          <span class="cf-card-meta">${filteredTx.length} entr${filteredTx.length === 1 ? 'y' : 'ies'}</span>
         </div>
         <div class="cf-table-scroll">
           <table class="cf-table">
@@ -3280,6 +3294,14 @@ function bindContentEvents() {
   content.querySelectorAll('[data-cf-period]').forEach(btn => {
     btn.addEventListener('click', () => {
       state.expensesPeriod = btn.dataset.cfPeriod;
+      render();
+    });
+  });
+
+  // Transaction filter pills (Expenses / Revenue / All)
+  content.querySelectorAll('[data-tx-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.expensesFilter = btn.dataset.txFilter;
       render();
     });
   });
