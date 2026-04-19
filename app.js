@@ -1536,53 +1536,108 @@ function getMonthExpenses(expenses, monthPrefix) {
 }
 
 function renderExpenseFormPanel(exp = {}) {
-  const isEdit = !!exp.id;
+  const isEdit  = !!exp.id;
+  const type    = exp.type || 'expense';
+  const cat     = exp.category || 'equipment';
+  const isIncome = type === 'income';
+
+  const catPills = EXPENSE_CATEGORIES.map(c => `
+    <button type="button" class="ef-cat-pill${cat === c.id ? ' active' : ''}" data-ef-cat="${c.id}">
+      <span class="ef-cat-emoji">${c.emoji}</span>
+      <span class="ef-cat-name">${c.label}</span>
+    </button>`).join('');
+
   return `
-    <div class="exp-form-header">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:15px;height:15px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      ${isEdit ? 'Edit Transaction' : 'Add Transaction'}
-    </div>
-    <div class="exp-form-body">
-      <div class="form-group">
-        <label class="form-label">Date <span class="form-required">*</span></label>
-        <input class="form-input" type="date" id="ef-date" value="${exp.date || todayISO()}" />
-      </div>
-      <div class="form-group">
-        <label class="form-label">Type <span class="form-required">*</span></label>
-        <select class="form-input" id="ef-type">
-          <option value="expense" ${exp.type !== 'income' ? 'selected' : ''}>Expense</option>
-          <option value="income" ${exp.type === 'income' ? 'selected' : ''}>Income</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Category <span class="form-required">*</span></label>
-        <select class="form-input" id="ef-category">
-          ${EXPENSE_CATEGORIES.map(c => `<option value="${c.id}" ${exp.category === c.id ? 'selected' : ''}>${c.label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Description</label>
-        <input class="form-input" type="text" id="ef-desc" placeholder="e.g. Lawn mower blade sharpening" value="${escHtml(exp.description || '')}" />
-      </div>
-      <div class="form-group">
-        <label class="form-label">Amount ($) <span class="form-required">*</span></label>
-        <input class="form-input" type="number" id="ef-amount" placeholder="0.00" value="${exp.amount || ''}" inputmode="decimal" min="0" step="0.01" />
-      </div>
-      <div class="form-group">
-        <label class="form-label">Notes</label>
-        <textarea class="form-textarea" id="ef-notes" placeholder="Additional notes...">${escHtml(exp.notes || '')}</textarea>
-      </div>
-      <label class="exp-recurring-label">
-        <input type="checkbox" id="ef-recurring" ${exp.recurring ? 'checked' : ''} />
+    <div class="ef-wrap">
+
+      <!-- Header -->
+      <div class="ef-head">
         <div>
-          <div class="exp-recurring-title">Monthly Subscription</div>
-          <div class="exp-recurring-sub">Automatically add this expense next month</div>
+          <div class="ef-head-title">${isEdit ? 'Edit Transaction' : 'Add Transaction'}</div>
+          <div class="ef-head-sub">${isEdit ? 'Update this record' : 'Log an expense or income'}</div>
         </div>
-      </label>
-      <button class="btn btn-primary btn-full" id="save-expense-btn" data-expense-id="${exp.id || ''}" style="margin-top:14px">
-        ${isEdit ? 'Save Changes' : 'Add Transaction'}
-      </button>
-      ${isEdit ? `<button class="btn btn-outline btn-full" id="cancel-edit-expense-btn" style="margin-top:8px">Cancel</button>` : ''}
+        <button class="ef-close" id="sheet-close-btn" type="button">
+          <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="14" y1="4" x2="4" y2="14"/><line x1="4" y1="4" x2="14" y2="14"/></svg>
+        </button>
+      </div>
+
+      <!-- Type toggle -->
+      <div class="ef-section">
+        <div class="ef-label">Type</div>
+        <div class="ef-type-toggle">
+          <button type="button" class="ef-type-btn${!isIncome ? ' active expense' : ''}" data-ef-type="expense">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
+            Expense
+          </button>
+          <button type="button" class="ef-type-btn${isIncome ? ' active income' : ''}" data-ef-type="income">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,11 8,5 14,11"/></svg>
+            Income
+          </button>
+        </div>
+        <input type="hidden" id="ef-type" value="${type}" />
+      </div>
+
+      <!-- Amount + Date -->
+      <div class="ef-section ef-row">
+        <div class="ef-field ef-field--amount">
+          <div class="ef-label">Amount</div>
+          <div class="ef-amount-wrap">
+            <span class="ef-amount-pre">$</span>
+            <input class="ef-amount-input" type="number" id="ef-amount"
+              placeholder="0.00" value="${exp.amount || ''}"
+              inputmode="decimal" min="0" step="0.01" />
+          </div>
+        </div>
+        <div class="ef-field ef-field--date">
+          <div class="ef-label">Date</div>
+          <input class="ef-date-input" type="date" id="ef-date" value="${exp.date || todayISO()}" />
+        </div>
+      </div>
+
+      <!-- Description -->
+      <div class="ef-section">
+        <div class="ef-label">Description <span class="ef-optional">optional</span></div>
+        <input class="ef-text-input" type="text" id="ef-desc"
+          placeholder="e.g. Mower blade sharpening"
+          value="${escHtml(exp.description || '')}" />
+      </div>
+
+      <!-- Category (hidden for income) -->
+      <div class="ef-section" id="ef-cat-section"${isIncome ? ' style="display:none"' : ''}>
+        <div class="ef-label">Category</div>
+        <div class="ef-cat-grid">${catPills}</div>
+        <input type="hidden" id="ef-category" value="${cat}" />
+      </div>
+
+      <!-- Notes -->
+      <div class="ef-section">
+        <div class="ef-label">Notes <span class="ef-optional">optional</span></div>
+        <textarea class="ef-textarea" id="ef-notes"
+          placeholder="Any extra details...">${escHtml(exp.notes || '')}</textarea>
+      </div>
+
+      <!-- Repeat monthly -->
+      <div class="ef-section">
+        <label class="ef-recurring">
+          <input type="checkbox" id="ef-recurring" ${exp.recurring ? 'checked' : ''} />
+          <div class="ef-recurring-icon">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="1,4 1,10 7,10"/><path d="M3.51,15a9,9,0,1,0,.49-4.48"/></svg>
+          </div>
+          <div class="ef-recurring-text">
+            <span class="ef-recurring-title">Repeat monthly</span>
+            <span class="ef-recurring-sub">Auto-add this expense each month</span>
+          </div>
+        </label>
+      </div>
+
+      <!-- Footer actions -->
+      <div class="ef-footer">
+        ${isEdit ? `<button class="ef-delete-btn" id="delete-expense-modal-btn" data-expense-id="${exp.id}" type="button">Delete</button>` : ''}
+        <button class="ef-save-btn" id="save-expense-btn" data-expense-id="${exp.id || ''}" type="button">
+          ${isEdit ? 'Save Changes' : 'Add Transaction'}
+        </button>
+      </div>
+
     </div>`;
 }
 
@@ -2625,12 +2680,7 @@ function renderModal() {
   } else if (type === 'log-time') {
     el.innerHTML = renderLogTimeModal(data);
   } else if (type === 'expense-form') {
-    el.innerHTML = `
-      <div class="sheet-header">
-        <h2>${data.id ? 'Edit Transaction' : 'Add Transaction'}</h2>
-        <button class="sheet-close" id="sheet-close-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      </div>
-      <div class="form-body">${renderExpenseFormPanel(data)}</div>`;
+    el.innerHTML = renderExpenseFormPanel(data);
   }
   bindModalEvents();
 }
@@ -3484,10 +3534,48 @@ function bindModalEvents() {
   // Close btn
   sheet.querySelector('#sheet-close-btn')?.addEventListener('click', closeModal);
 
-  // Expense form (modal version — mobile)
+  // ── Expense form events ──
+
+  // Type toggle pills (Expense / Income)
+  sheet.querySelectorAll('[data-ef-type]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const t = btn.dataset.efType;
+      sheet.querySelector('#ef-type').value = t;
+      // Update pill active states
+      sheet.querySelectorAll('[data-ef-type]').forEach(b => {
+        b.classList.remove('active', 'expense', 'income');
+      });
+      btn.classList.add('active', t);
+      // Show/hide category section
+      const catSection = sheet.querySelector('#ef-cat-section');
+      if (catSection) catSection.style.display = t === 'income' ? 'none' : '';
+    });
+  });
+
+  // Category pills
+  sheet.querySelectorAll('[data-ef-cat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      sheet.querySelectorAll('[data-ef-cat]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      sheet.querySelector('#ef-category').value = btn.dataset.efCat;
+    });
+  });
+
+  // Save expense
   sheet.querySelector('#save-expense-btn')?.addEventListener('click', () => {
     const expId = sheet.querySelector('#save-expense-btn').dataset.expenseId;
     if (saveExpenseFromForm(expId || '')) { closeModal(); render(); }
+  });
+
+  // Delete expense (from edit modal)
+  sheet.querySelector('#delete-expense-modal-btn')?.addEventListener('click', () => {
+    const btn = sheet.querySelector('#delete-expense-modal-btn');
+    const expId = btn?.dataset.expenseId;
+    if (!expId) return;
+    captureUndo();
+    const d = getData();
+    d.expenses = (d.expenses || []).filter(e => e.id !== expId);
+    saveData(d); closeModal(); render(); showToast('Transaction deleted', true);
   });
 
   // Calendar day modal — Add Job button
