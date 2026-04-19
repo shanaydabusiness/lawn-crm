@@ -14,9 +14,7 @@ let state = {
   calendarMonth: new Date().getMonth(),
   calendarYear: new Date().getFullYear(),
   calendarSelectedDay: null,
-  expensesPeriod: 'monthly',
-  expensesMonth: new Date().getMonth(),
-  expensesYear: new Date().getFullYear(),
+  expensesPeriod: '3M',
   editingExpenseId: null,
   dashCalMonth: new Date().getMonth(),
   dashCalYear: new Date().getFullYear(),
@@ -1587,7 +1585,410 @@ function renderExpenseFormPanel(exp = {}) {
     </div>`;
 }
 
+// ===== CASH FLOW DATA HELPER =====
+function computeExpensesData() {
+  const data   = getData();
+  const period = state.expensesPeriod || '3M';
+  const now    = new Date();
+
+  // Build month list going back from current month
+  let monthCount;
+  if      (period === '1M')  monthCount = 1;
+  else if (period === '3M')  monthCount = 3;
+  else if (period === '6M')  monthCount = 6;
+  else if (period === 'YTD') monthCount = now.getMonth() + 1;
+  else                       monthCount = 12; // 1Y
+
+  const months = [];
+  for (let i = monthCount - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({
+      label:  d.toLocaleDateString('en-US', { month: 'short' }),
+      prefix: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+    });
+  }
+
+  const startISO = months[0].prefix + '-01';
+  const endISO   = todayISO();
+
+  // Payments → inflow
+  const allPayments = [];
+  for (const c of data.clients || []) {
+    for (const p of c.payments || []) {
+      if (p.date >= startISO && p.date <= endISO)
+        allPayments.push({ ...p, clientName: c.name });
+    }
+  }
+
+  // Expense records
+  const expRec = (data.expenses || []).filter(e => e.date >= startISO && e.date <= endISO && e.type !== 'income');
+  const incRec = (data.expenses || []).filter(e => e.date >= startISO && e.date <= endISO && e.type === 'income');
+
+  // Monthly sums for chart
+  const inflowByMo = {}, outflowByMo = {};
+  for (const m of months) { inflowByMo[m.prefix] = 0; outflowByMo[m.prefix] = 0; }
+  for (const p of allPayments) {
+    const k = (p.date || '').slice(0, 7);
+    if (k in inflowByMo) inflowByMo[k] += p.amount || 0;
+  }
+  for (const e of incRec) {
+    const k = (e.date || '').slice(0, 7);
+    if (k in inflowByMo) inflowByMo[k] += e.amount || 0;
+  }
+  for (const e of expRec) {
+    const k = (e.date || '').slice(0, 7);
+    if (k in outflowByMo) outflowByMo[k] += e.amount || 0;
+  }
+
+  const chartLabels  = months.map(m => m.label);
+  const chartInflow  = months.map(m => inflowByMo[m.prefix]);
+  const chartOutflow = months.map(m => outflowByMo[m.prefix]);
+  const chartNet     = chartInflow.map((v, i) => v - chartOutflow[i]);
+
+  const totalInflow  = chartInflow.reduce((s, v) => s + v, 0);
+  const totalOutflow = chartOutflow.reduce((s, v) => s + v, 0);
+  const net          = totalInflow - totalOutflow;
+  const avgBurn      = monthCount > 0 ? totalOutflow / monthCount : 0;
+
+  // Previous period for deltas
+  const prevStart = new Date(now.getFullYear(), now.getMonth() - monthCount * 2, 1).toISOString().slice(0, 10);
+  const prevEnd   = new Date(now.getFullYear(), now.getMonth() - monthCount, 0).toISOString().slice(0, 10);
+  let prevIn = 0, prevOut = 0;
+  for (const c of data.clients || [])
+    for (const p of c.payments || [])
+      if (p.date >= prevStart && p.date <= prevEnd) prevIn += p.amount || 0;
+  for (const e of data.expenses || []) {
+    if (e.date >= prevStart && e.date <= prevEnd) {
+      if (e.type === 'income') prevIn += e.amount || 0;
+      else prevOut += e.amount || 0;
+    }
+  }
+  const pctΔ = (curr, prev) => prev > 0 ? Math.round(((curr - prev) / prev) * 100) : null;
+  const deltas = {
+    inflow:  pctΔ(totalInflow,  prevIn),
+    outflow: pctΔ(totalOutflow, prevOut),
+    net:     pctΔ(net, prevIn - prevOut),
+    avgBurn: pctΔ(avgBurn, prevOut / monthCount),
+  };
+
+  // Category breakdown
+  const catTotals = {};
+  for (const e of expRec) {
+    const k = e.category || 'other';
+    catTotals[k] = (catTotals[k] || 0) + e.amount;
+  }
+  const catRows  = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
+  const donutData = catRows.map(([catId, total]) => ({
+    catId,
+    total,
+    pct:   totalOutflow > 0 ? Math.round((total / totalOutflow) * 100) : 0,
+    cat:   EXPENSE_CATEGORIES.find(c => c.id === catId),
+    color: EXPENSE_CAT_COLORS[catId] || '#94a3b8',
+  }));
+
+  // All transactions sorted desc
+  const transactions = [
+    ...allPayments.map(p => ({
+      date: p.date, isInflow: true,
+      description: p.description || p.clientName || 'Payment',
+      category: 'Revenue',
+      amount: p.amount,
+      status: p.status === 'paid' ? 'cleared' : 'pending',
+    })),
+    ...expRec.map(e => ({
+      date: e.date, isInflow: false,
+      description: e.description || EXPENSE_CATEGORIES.find(c => c.id === e.category)?.label || 'Expense',
+      category: EXPENSE_CATEGORIES.find(c => c.id === e.category)?.label || e.category || 'Other',
+      amount: e.amount,
+      status: 'paid',
+    })),
+    ...incRec.map(e => ({
+      date: e.date, isInflow: true,
+      description: e.description || 'Income',
+      category: 'Revenue',
+      amount: e.amount,
+      status: 'cleared',
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  return { totalInflow, totalOutflow, net, avgBurn, deltas, chartLabels, chartInflow, chartOutflow, chartNet, donutData, transactions, monthCount };
+}
+
+// ===== CHART INIT (Cash Flow page) =====
+function initCfCharts(cd) {
+  if (typeof Chart === 'undefined') return;
+  if (window._cfLine)  { window._cfLine.destroy();  window._cfLine  = null; }
+  if (window._cfDonut) { window._cfDonut.destroy(); window._cfDonut = null; }
+
+  const lineEl  = document.getElementById('cf-line-canvas');
+  const donutEl = document.getElementById('cf-donut-canvas');
+
+  const gridColor  = 'rgba(0,0,0,0.04)';
+  const tickColor  = '#94a3b8';
+  const ttBg       = '#ffffff';
+  const ttBorder   = 'rgba(0,0,0,0.08)';
+  const ttTitle    = '#1a2e1a';
+  const ttBody     = '#4a5568';
+
+  if (lineEl && cd.chartLabels.length) {
+    window._cfLine = new Chart(lineEl, {
+      type: 'line',
+      data: {
+        labels: cd.chartLabels,
+        datasets: [
+          {
+            label: 'Inflow',
+            data: cd.chartInflow,
+            borderColor: '#0d9488', backgroundColor: 'rgba(13,148,136,0.07)',
+            fill: true, tension: 0.42, borderWidth: 1.5,
+            pointRadius: 3, pointHoverRadius: 5, pointBackgroundColor: '#0d9488', pointBorderWidth: 0,
+          },
+          {
+            label: 'Outflow',
+            data: cd.chartOutflow,
+            borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.06)',
+            fill: true, tension: 0.42, borderWidth: 1.5,
+            pointRadius: 3, pointHoverRadius: 5, pointBackgroundColor: '#f97316', pointBorderWidth: 0,
+          },
+          {
+            label: 'Net',
+            data: cd.chartNet,
+            borderColor: '#3b82f6', backgroundColor: 'transparent',
+            fill: false, tension: 0.42, borderWidth: 1.5, borderDash: [5, 4],
+            pointRadius: 3, pointHoverRadius: 5, pointBackgroundColor: '#3b82f6', pointBorderWidth: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: ttBg, borderColor: ttBorder, borderWidth: 0.5,
+            titleColor: ttTitle, bodyColor: ttBody,
+            padding: { x: 12, y: 10 },
+            callbacks: { label: ctx => `  ${ctx.dataset.label}  $${ctx.parsed.y.toLocaleString()}` },
+          },
+        },
+        scales: {
+          x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 }, color: tickColor, maxRotation: 0 } },
+          y: { grid: { color: gridColor }, border: { display: false }, ticks: { font: { size: 11 }, color: tickColor, callback: v => '$' + (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) } },
+        },
+        interaction: { intersect: false, mode: 'index' },
+      },
+    });
+  }
+
+  if (donutEl && cd.donutData.length) {
+    window._cfDonut = new Chart(donutEl, {
+      type: 'doughnut',
+      data: {
+        labels: cd.donutData.map(d => d.cat?.label || d.catId),
+        datasets: [{ data: cd.donutData.map(d => d.pct), backgroundColor: cd.donutData.map(d => d.color), borderWidth: 0, hoverOffset: 6 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '68%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: ttBg, borderColor: ttBorder, borderWidth: 0.5,
+            titleColor: ttTitle, bodyColor: ttBody,
+            padding: { x: 12, y: 10 },
+            callbacks: { label: ctx => `  ${ctx.label}  ${ctx.parsed}%` },
+          },
+        },
+      },
+    });
+  }
+}
+
+// ===== EXPENSES VIEW =====
 function renderExpenses() {
+  const cd     = computeExpensesData();
+  const period = state.expensesPeriod || '3M';
+  const PERIODS = ['1M', '3M', '6M', 'YTD', '1Y'];
+
+  const fmtC = v => {
+    const abs = Math.abs(v);
+    const str = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(abs);
+    return (v < 0 ? '−' : '') + str;
+  };
+
+  const deltaHtml = (d) => {
+    if (d === null || d === undefined) return '';
+    const up = d >= 0;
+    return `<span class="cf-metric-delta ${up ? 'up' : 'down'}">${up ? '↑' : '↓'} ${Math.abs(d)}% vs prev period</span>`;
+  };
+
+  const statusBadge = (s) => {
+    const MAP = {
+      cleared: { label: 'Cleared', color: '#10b981', bg: 'rgba(16,185,129,0.1)'  },
+      paid:    { label: 'Paid',    color: '#3b82f6', bg: 'rgba(59,130,246,0.1)'  },
+      pending: { label: 'Pending', color: '#d97706', bg: 'rgba(217,119,6,0.1)'   },
+      unpaid:  { label: 'Unpaid',  color: '#d97706', bg: 'rgba(217,119,6,0.1)'   },
+      overdue: { label: 'Overdue', color: '#dc2626', bg: 'rgba(220,38,38,0.1)'   },
+    };
+    const cfg = MAP[s] || MAP.pending;
+    return `<span class="cf-badge" style="color:${cfg.color};background:${cfg.bg}">${cfg.label}</span>`;
+  };
+
+  // Donut legend
+  const donutLegendHtml = cd.donutData.length === 0
+    ? `<p class="cf-empty">No expenses logged this period.</p>`
+    : cd.donutData.map(d => `
+        <div class="cf-dl-row">
+          <span class="cf-dl-dot" style="background:${d.color}"></span>
+          <span class="cf-dl-name">${escHtml(d.cat?.label || d.catId)}</span>
+          <span class="cf-dl-pct">${d.pct}%</span>
+        </div>`).join('');
+
+  // Expense list
+  const expListHtml = cd.donutData.length === 0
+    ? `<p class="cf-empty">No expenses this period.</p>`
+    : cd.donutData.map((d, i) => `
+        <div class="cf-exp-row${i === cd.donutData.length - 1 ? ' cf-exp-row--last' : ''}">
+          <span class="cf-exp-icon" style="background:${d.color}1a;color:${d.color}">${d.cat?.emoji || '📦'}</span>
+          <div class="cf-exp-info">
+            <span class="cf-exp-name">${escHtml(d.cat?.label || d.catId)}</span>
+            <div class="cf-exp-bar-track"><div class="cf-exp-bar-fill" style="width:${d.pct}%;background:${d.color}"></div></div>
+          </div>
+          <span class="cf-exp-amount">${fmtC(d.total)}</span>
+          <span class="cf-exp-pct">${d.pct}%</span>
+        </div>`).join('');
+
+  // Transactions table rows
+  const txHtml = cd.transactions.length === 0
+    ? `<tr><td colspan="5" class="cf-td-empty">No transactions this period.</td></tr>`
+    : cd.transactions.slice(0, 60).map(tx => `
+        <tr>
+          <td class="cf-td-date">${formatDate(tx.date)}</td>
+          <td class="cf-td-desc">${escHtml(tx.description)}</td>
+          <td class="cf-td-cat">${escHtml(tx.category)}</td>
+          <td class="cf-td-amount${tx.isInflow ? ' cf-td-amount--in' : ''}">
+            ${tx.isInflow ? '+' : '−'}${fmtC(tx.amount).replace(/^−/, '')}
+          </td>
+          <td>${statusBadge(tx.status)}</td>
+        </tr>`).join('');
+
+  return `
+    <div class="cf-wrap">
+
+      <!-- ── Header ── -->
+      <div class="cf-header">
+        <div class="cf-header-left">
+          <h1 class="cf-title">Cash flow &amp; expenses</h1>
+          <p class="cf-subtitle">Financial overview — all accounts</p>
+        </div>
+        <div class="cf-header-right">
+          <div class="cf-period-group">
+            ${PERIODS.map(p => `<button class="cf-period-btn${period === p ? ' active' : ''}" data-cf-period="${p}">${p}</button>`).join('')}
+          </div>
+          <button class="cf-add-btn" id="exp-add-mobile-btn">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;flex-shrink:0"><line x1="7" y1="1" x2="7" y2="13"/><line x1="1" y1="7" x2="13" y2="7"/></svg>
+            Add expense
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Metric cards ── -->
+      <div class="cf-metrics-grid">
+        <div class="cf-metric">
+          <span class="cf-metric-label">Total inflow</span>
+          <span class="cf-metric-value">${fmtC(cd.totalInflow)}</span>
+          ${deltaHtml(cd.deltas.inflow)}
+        </div>
+        <div class="cf-metric">
+          <span class="cf-metric-label">Total outflow</span>
+          <span class="cf-metric-value">${fmtC(cd.totalOutflow)}</span>
+          ${deltaHtml(cd.deltas.outflow)}
+        </div>
+        <div class="cf-metric">
+          <span class="cf-metric-label">Net cash flow</span>
+          <span class="cf-metric-value" style="color:var(--green-mid)">${fmtC(cd.net)}</span>
+          ${deltaHtml(cd.deltas.net)}
+        </div>
+        <div class="cf-metric">
+          <span class="cf-metric-label">Avg monthly burn</span>
+          <span class="cf-metric-value">${fmtC(cd.avgBurn)}</span>
+          ${deltaHtml(cd.deltas.avgBurn)}
+        </div>
+      </div>
+
+      <!-- ── Charts grid ── -->
+      <div class="cf-charts-grid">
+
+        <!-- Line chart -->
+        <div class="cf-card cf-line-card">
+          <div class="cf-card-head">
+            <span class="cf-card-title">Cash flow over time</span>
+            <div class="cf-line-legend">
+              <span class="cf-ll-item"><span class="cf-ll-line" style="background:#0d9488"></span>Inflow</span>
+              <span class="cf-ll-item"><span class="cf-ll-line" style="background:#f97316"></span>Outflow</span>
+              <span class="cf-ll-item"><span class="cf-ll-dashed"></span>Net</span>
+            </div>
+          </div>
+          <div class="cf-chart-body">
+            <div class="cf-canvas-wrap" style="height:220px"><canvas id="cf-line-canvas"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Doughnut chart -->
+        <div class="cf-card cf-donut-card">
+          <div class="cf-card-head">
+            <span class="cf-card-title">Expense breakdown</span>
+          </div>
+          <div class="cf-chart-body">
+            <div class="cf-canvas-wrap" style="height:180px"><canvas id="cf-donut-canvas"></canvas></div>
+          </div>
+          <div class="cf-donut-legend">${donutLegendHtml}</div>
+        </div>
+
+      </div>
+
+      <!-- ── Expense list ── -->
+      <div class="cf-card">
+        <div class="cf-card-head">
+          <span class="cf-card-title">Expenses by category</span>
+          <span class="cf-card-meta">${cd.donutData.length} categor${cd.donutData.length === 1 ? 'y' : 'ies'}</span>
+        </div>
+        <div class="cf-expense-list">
+          ${expListHtml}
+          ${cd.donutData.length > 0 ? `
+          <div class="cf-exp-total">
+            <span class="cf-exp-total-label">Total outflow</span>
+            <span class="cf-exp-total-value">${fmtC(cd.totalOutflow)}</span>
+          </div>` : ''}
+        </div>
+      </div>
+
+      <!-- ── Transactions table ── -->
+      <div class="cf-card">
+        <div class="cf-card-head">
+          <span class="cf-card-title">Transactions</span>
+          <span class="cf-card-meta">${cd.transactions.length} entries</span>
+        </div>
+        <div class="cf-table-scroll">
+          <table class="cf-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Category</th>
+                <th style="text-align:right">Amount</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>${txHtml}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+    </div>`;
+}
+
+// ── ORIGINAL renderExpenses() removed below — replaced above ──
+function _REMOVED_renderExpenses_original() {
   const data = getData();
   const allExpenses = data.expenses || [];
   const now = new Date();
@@ -2875,36 +3276,12 @@ function bindContentEvents() {
 
   // ===== EXPENSE EVENTS =====
 
-  // Expense period tabs
-  content.querySelectorAll('[data-exp-period]').forEach(btn => {
+  // Period selector buttons (1M / 3M / 6M / YTD / 1Y)
+  content.querySelectorAll('[data-cf-period]').forEach(btn => {
     btn.addEventListener('click', () => {
-      state.expensesPeriod = btn.dataset.expPeriod;
-      // Reset to current month/year when switching
-      const now = new Date();
-      state.expensesMonth = now.getMonth();
-      state.expensesYear  = now.getFullYear();
+      state.expensesPeriod = btn.dataset.cfPeriod;
       render();
     });
-  });
-
-  // Expense period nav prev/next
-  content.querySelector('#exp-prev')?.addEventListener('click', () => {
-    if (state.expensesPeriod === 'monthly') {
-      state.expensesMonth--;
-      if (state.expensesMonth < 0) { state.expensesMonth = 11; state.expensesYear--; }
-    } else {
-      state.expensesYear--;
-    }
-    render();
-  });
-  content.querySelector('#exp-next')?.addEventListener('click', () => {
-    if (state.expensesPeriod === 'monthly') {
-      state.expensesMonth++;
-      if (state.expensesMonth > 11) { state.expensesMonth = 0; state.expensesYear++; }
-    } else {
-      state.expensesYear++;
-    }
-    render();
   });
 
   // Add expense button
@@ -2912,23 +3289,10 @@ function bindContentEvents() {
     openModal('expense-form', {});
   });
 
-  // Save from inline desktop form
-  content.querySelector('#save-expense-btn')?.addEventListener('click', () => {
-    const expId = content.querySelector('#save-expense-btn')?.dataset.expenseId || '';
-    if (saveExpenseFromForm(expId)) render();
-  });
-
-  // Cancel edit
-  content.querySelector('#cancel-edit-expense-btn')?.addEventListener('click', () => {
-    state.editingExpenseId = null;
-    render();
-  });
-
-  // Edit expense — open modal
+  // Edit expense row → open modal
   content.querySelectorAll('[data-edit-expense]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = btn.dataset.editExpense;
-      const exp = getData().expenses.find(e => e.id === id) || {};
+      const exp = getData().expenses.find(e => e.id === btn.dataset.editExpense) || {};
       openModal('expense-form', exp);
     });
   });
@@ -2939,12 +3303,17 @@ function bindContentEvents() {
       captureUndo();
       const d = getData();
       d.expenses = (d.expenses || []).filter(e => e.id !== btn.dataset.deleteExpense);
-      saveData(d);
-      if (state.editingExpenseId === btn.dataset.deleteExpense) state.editingExpenseId = null;
-      render();
-      showToast('Transaction deleted', true);
+      saveData(d); render(); showToast('Transaction deleted', true);
     });
   });
+
+  // Init Chart.js charts (must run after DOM is painted)
+  if (state.view === 'expenses') {
+    requestAnimationFrame(() => {
+      const cd = computeExpensesData();
+      initCfCharts(cd);
+    });
+  }
 
   // Log Time manually
   content.querySelector('#log-time-btn')?.addEventListener('click', () => {
