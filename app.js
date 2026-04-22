@@ -16,6 +16,9 @@ let state = {
   calendarSelectedDay: null,
   expensesPeriod: '3M',
   expensesFilter: 'expenses',
+  expensesTab: 'cashflow',
+  catDrilldownPeriod: '3M',
+  reportsPeriod: 'YTD',
   editingExpenseId: null,
   dashCalMonth: new Date().getMonth(),
   dashCalYear: new Date().getFullYear(),
@@ -121,16 +124,87 @@ const FREQ_MULTIPLIERS = {
 };
 
 const SERVICE_TYPES = [
-  { id: 'mowing', label: 'Mowing', emoji: '🌿' },
-  { id: 'mulch', label: 'Mulch', emoji: '🍂' },
-  { id: 'cleanup', label: 'Cleanup', emoji: '🧹' },
-  { id: 'shrubs', label: 'Shrubs', emoji: '🌳' },
-  { id: 'trash-can', label: 'Trash Can', emoji: '🗑️' },
-  { id: 'other', label: 'Other', emoji: '🔧' },
+  { id: 'mowing',        label: 'Mowing',        emoji: '🌿' },
+  { id: 'mulch',         label: 'Mulch',         emoji: '🍂' },
+  { id: 'cleanup',       label: 'Cleanup',       emoji: '🧹' },
+  { id: 'shrubs',        label: 'Shrubs',        emoji: '🌳' },
+  { id: 'trash-can',     label: 'Trash Can',     emoji: '🗑️' },
+  { id: 'junk-removal',  label: 'Junk Removal',  emoji: '🚛' },
+  { id: 'other',         label: 'Other',         emoji: '🔧' },
 ];
 
+// Per-service SVG icons (viewBox 0 0 24 24)
+const SERVICE_ICON_SVG = {
+  mowing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="9" width="13" height="5" rx="1.5"/>
+    <circle cx="5.5" cy="16.5" r="2"/>
+    <circle cx="11.5" cy="16.5" r="2"/>
+    <line x1="15" y1="9" x2="20.5" y2="3.5"/>
+    <path d="M2 9 C3 6 6 4.5 9 5"/>
+    <path d="M7 9 L7 5.5"/>
+  </svg>`,
+  mulch: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="12" y1="2" x2="12" y2="13"/>
+    <path d="M8.5 13 Q8 20 12 21 Q16 20 15.5 13 Z"/>
+    <line x1="9.5" y1="2" x2="14.5" y2="2"/>
+  </svg>`,
+  cleanup: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="12" y1="3" x2="12" y2="14"/>
+    <line x1="5.5" y1="14" x2="18.5" y2="14"/>
+    <line x1="7"  y1="14" x2="5.5" y2="20"/>
+    <line x1="10" y1="14" x2="9"   y2="20"/>
+    <line x1="12" y1="14" x2="12"  y2="20"/>
+    <line x1="14" y1="14" x2="15"  y2="20"/>
+    <line x1="17" y1="14" x2="18.5" y2="20"/>
+  </svg>`,
+  shrubs: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 15 C4 9.5 7.5 6 12 6 C16.5 6 20 9.5 20 15"/>
+    <line x1="3.5" y1="15" x2="20.5" y2="15"/>
+    <line x1="12" y1="15" x2="12" y2="20"/>
+    <line x1="8.5" y1="20" x2="15.5" y2="20"/>
+  </svg>`,
+  'trash-can': `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 3h6v3H9z"/>
+    <line x1="4" y1="6" x2="20" y2="6"/>
+    <path d="M6 6l1.5 14a1 1 0 0 0 1 .9h7a1 1 0 0 0 1-.9L18 6"/>
+    <line x1="10" y1="11" x2="10" y2="17"/>
+    <line x1="14" y1="11" x2="14" y2="17"/>
+  </svg>`,
+  'junk-removal': `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="1" y="12" width="22" height="7" rx="1.5"/>
+    <path d="M4 12V9a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v3"/>
+    <line x1="8" y1="8" x2="8" y2="12"/>
+    <line x1="12" y1="8" x2="12" y2="12"/>
+    <line x1="16" y1="8" x2="16" y2="12"/>
+    <circle cx="6.5" cy="19.5" r="1.5"/>
+    <circle cx="17.5" cy="19.5" r="1.5"/>
+  </svg>`,
+  other: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+  </svg>`,
+};
+
+// Per-service color theming  { bg, color }
+const SERVICE_ICON_COLORS = {
+  mowing:      { bg: '#dcfce7', color: '#15803d' },
+  mulch:       { bg: '#fef3c7', color: '#92400e' },
+  cleanup:     { bg: '#dbeafe', color: '#1d4ed8' },
+  shrubs:      { bg: '#d1fae5', color: '#065f46' },
+  'trash-can':    { bg: '#f1f5f9', color: '#475569' },
+  'junk-removal': { bg: '#fce7f3', color: '#9d174d' },
+  other:          { bg: '#ede9fe', color: '#6d28d9' },
+};
+
+function serviceIconSvg(type) {
+  return SERVICE_ICON_SVG[type] || SERVICE_ICON_SVG.other;
+}
+
+function serviceIconColors(type) {
+  return SERVICE_ICON_COLORS[type] || SERVICE_ICON_COLORS.other;
+}
+
 function serviceEmoji(type) {
-  return '';
+  return SERVICE_TYPES.find(s => s.id === type)?.emoji || '🔧';
 }
 
 function serviceLabel(type) {
@@ -334,6 +408,7 @@ function render() {
   else if (state.view === 'reports') content.innerHTML = renderReports();
   else if (state.view === 'calendar') content.innerHTML = renderCalendar();
   else if (state.view === 'expenses') content.innerHTML = renderExpenses();
+  else if (state.view === 'tools') content.innerHTML = renderTools();
   else if (state.view === 'settings') content.innerHTML = renderSettings();
   bindContentEvents();
 }
@@ -365,15 +440,20 @@ function renderDashboard() {
     }
   }
 
-  // Build scheduled job map: date -> [{sjId, clientId, clientName, status}]
+  // Build scheduled job map: date -> [{sjId, clientId, clientName, status, price}]
   const schedMap = {};
   for (const sj of (data.scheduledJobs || [])) {
     const key = (sj.date || '').slice(0, 10);
     if (!key.startsWith(calMonthPrefix)) continue;
     const client = data.clients.find(c => c.id === sj.clientId);
     if (!client) continue;
+    // Projected price: use stored estimate if set, else sum recurring services
+    const price = sj.estimatedPrice ||
+      (client.services || [])
+        .filter(s => s.frequency !== 'one-time')
+        .reduce((s, svc) => s + (svc.price || 0), 0);
     if (!schedMap[key]) schedMap[key] = [];
-    schedMap[key].push({ sjId: sj.id, clientId: sj.clientId, clientName: client.name, status: sj.status, kind: 'sched' });
+    schedMap[key].push({ sjId: sj.id, clientId: sj.clientId, clientName: client.name, status: sj.status, kind: 'sched', price });
   }
 
   // Build calendar weeks
@@ -389,18 +469,26 @@ function renderDashboard() {
   const dowLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   const calGridHTML = calWeeks.map(wk => {
-    let weekRevenue = 0;
-    let weekJobs    = 0;
+    let weekBilled     = 0;
+    let weekCollected  = 0;
+    let weekJobs       = 0;
+    let weekProjected  = 0;
 
     const cells = wk.map(d => {
       if (!d) return `<div class="dcal-cell dcal-empty"></div>`;
       const key = `${calMonthPrefix}-${String(d).padStart(2, '0')}`;
-      const payments = jobMap[key] || [];
+      const payments  = jobMap[key] || [];
       const scheduled = schedMap[key] || [];
-      const isToday = key === today;
-      const dayTotal = payments.reduce((s, j) => s + j.amount, 0);
-      weekRevenue += dayTotal;
-      weekJobs    += payments.length;
+      const isToday   = key === today;
+
+      const dayBilled    = payments.reduce((s, j) => s + j.amount, 0);
+      const dayCollected = payments.filter(j => j.status === 'paid').reduce((s, j) => s + j.amount, 0);
+      const dayUnpaid    = dayBilled - dayCollected;
+      const dayProjected = scheduled.filter(s => s.status === 'scheduled').reduce((s, j) => s + (j.price || 0), 0);
+      weekBilled     += dayBilled;
+      weekCollected  += dayCollected;
+      weekJobs       += payments.length;
+      weekProjected  += dayProjected;
 
       // Merge: upcoming scheduled first, then done scheduled, then payments
       const upcoming   = scheduled.filter(s => s.status === 'scheduled');
@@ -431,21 +519,59 @@ function renderDashboard() {
         ? `<div class="dcal-chip dcal-chip-more">+${extra}</div>`
         : '';
 
+      // Day total
+      let dayTotalHtml = '';
+      if (dayBilled > 0) {
+        if (dayUnpaid > 0 && dayCollected > 0) {
+          dayTotalHtml = `<div class="dcal-total dcal-total-split">
+            <span class="dcal-total-collected">${formatCurrency(dayCollected)}</span>
+            <span class="dcal-total-billed">/${formatCurrency(dayBilled)}</span>
+          </div>`;
+        } else if (dayCollected === dayBilled) {
+          dayTotalHtml = `<div class="dcal-total dcal-total-all-paid">${formatCurrency(dayBilled)}</div>`;
+        } else {
+          dayTotalHtml = `<div class="dcal-total dcal-total-unpaid">${formatCurrency(dayBilled)}</div>`;
+        }
+        // If there are ALSO pending scheduled jobs, append projected
+        if (dayProjected > 0) {
+          dayTotalHtml += `<div class="dcal-total dcal-total-proj">+~${formatCurrency(dayProjected)}</div>`;
+        }
+      } else if (dayProjected > 0) {
+        // Only scheduled jobs — show projected P&L
+        dayTotalHtml = `<div class="dcal-total dcal-total-proj">~${formatCurrency(dayProjected)}</div>`;
+      } else if (hasUpcoming) {
+        dayTotalHtml = `<div class="dcal-total dcal-sched-label">${upcoming.length} sched</div>`;
+      }
+
       return `
         <div class="dcal-cell ${isToday ? 'dcal-today' : ''} ${hasAny ? 'dcal-has-jobs' : ''} ${hasUpcoming ? 'dcal-has-sched' : ''}" data-dcal-day="${key}">
           <div class="dcal-day-num ${isToday ? 'dcal-today-num' : ''}">${d}</div>
-          ${dayTotal > 0 ? `<div class="dcal-total">${formatCurrency(dayTotal)}</div>` : (hasUpcoming ? `<div class="dcal-total dcal-sched-label">${upcoming.length} sched</div>` : '')}
+          ${dayTotalHtml}
           <div class="dcal-chips">${chips}${extraChip}</div>
         </div>`;
     }).join('');
 
-    const weekSummary = `
-      <div class="dcal-week-summary">
-        ${weekRevenue > 0
-          ? `<div class="dcal-week-revenue">${formatCurrency(weekRevenue)}</div>
-             <div class="dcal-week-count">${weekJobs} job${weekJobs !== 1 ? 's' : ''}</div>`
-          : `<div class="dcal-week-empty">—</div>`}
-      </div>`;
+    // Week summary: actual billed/collected + projected from scheduled
+    let weekSummaryInner;
+    if (weekBilled > 0) {
+      const allCollected = weekCollected === weekBilled;
+      const pct = Math.round((weekCollected / weekBilled) * 100);
+      weekSummaryInner = `
+        <div class="dcal-wk-billed">${formatCurrency(weekBilled)}</div>
+        <div class="dcal-wk-collected ${allCollected ? 'dcal-wk-all-paid' : ''}">
+          ${formatCurrency(weekCollected)} coll'd
+        </div>
+        ${!allCollected ? `<div class="dcal-wk-pct">${pct}%</div>` : ''}
+        ${weekProjected > 0 ? `<div class="dcal-wk-proj">+~${formatCurrency(weekProjected)}</div>` : ''}`;
+    } else if (weekProjected > 0) {
+      weekSummaryInner = `
+        <div class="dcal-wk-proj-main">~${formatCurrency(weekProjected)}</div>
+        <div class="dcal-wk-proj-label">projected</div>`;
+    } else {
+      weekSummaryInner = `<div class="dcal-week-empty">—</div>`;
+    }
+
+    const weekSummary = `<div class="dcal-week-summary">${weekSummaryInner}</div>`;
 
     return `<div class="dcal-week">${cells}${weekSummary}</div>`;
   }).join('');
@@ -691,6 +817,16 @@ function renderClientRow(client) {
   const unpaid = (client.payments || []).filter(p => p.status === 'unpaid').reduce((s, p) => s + p.amount, 0);
   const paidCount = (client.payments || []).filter(p => p.status === 'paid').length;
 
+  const notes = client.clientNotes || [];
+  const hasPinned = notes.some(n => n.pinned);
+  const hasNotes  = notes.length > 0;
+  const notesBadge = hasNotes
+    ? `<span class="cn-job-badge ${hasPinned ? 'cn-job-badge-pin' : ''}" title="${hasPinned ? 'Has pinned note' : 'Has notes'}">
+         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+         ${notes.length}
+       </span>`
+    : '';
+
   const svcLine = isOneOff
     ? `${paidCount} job${paidCount !== 1 ? 's' : ''} on record`
     : primarySvc
@@ -698,10 +834,10 @@ function renderClientRow(client) {
       : 'No active services';
 
   return `
-    <div class="client-row" data-client-id="${client.id}">
+    <div class="client-row ${hasNotes ? 'client-row-has-notes' : ''} ${hasPinned ? 'client-row-has-pinned' : ''}" data-client-id="${client.id}">
       <div class="client-row-avatar" style="background:${avatarColor(client.name)}">${initials(client.name)}</div>
       <div class="client-row-main">
-        <div class="client-row-name">${escHtml(client.name)}${clientStatusBadge(clientStatus)}</div>
+        <div class="client-row-name">${escHtml(client.name)}${clientStatusBadge(clientStatus)}${notesBadge}</div>
         <div class="client-row-sub">${svcLine}</div>
       </div>
       <div class="client-row-right">
@@ -752,9 +888,10 @@ function renderClientDetail() {
   function renderServiceItem(svc) {
     const tracked = svc.trackSchedule !== false;
     const hasThreshold = ['weekly','biweekly','monthly'].includes(svc.frequency);
+    const ic = serviceIconColors(svc.type);
     return `
       <div class="service-item">
-        <div class="service-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
+        <div class="service-icon" style="background:${ic.bg};color:${ic.color}">${serviceIconSvg(svc.type)}</div>
         <div class="service-details">
           <div class="service-name">${serviceLabel(svc.type)}</div>
           <div class="service-meta">${FREQ_LABELS[svc.frequency] || svc.frequency}${svc.notes ? ' · ' + escHtml(svc.notes) : ''}</div>
@@ -930,11 +1067,48 @@ function renderClientDetail() {
           ${servicesHTML}
         </div>
 
-        ${client.notes ? `
-        <div class="detail-section">
-          <div class="detail-section-title">Notes</div>
-          <div class="notes-box">${escHtml(client.notes)}</div>
-        </div>` : ''}
+        ${(() => {
+          // Migrate legacy plain-text notes field into clientNotes array
+          const clientNotes = client.clientNotes || [];
+          const pinnedNotes = clientNotes.filter(n => n.pinned).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+          const otherNotes  = clientNotes.filter(n => !n.pinned).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+          const sortedNotes = [...pinnedNotes, ...otherNotes];
+
+          const pinIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M12 2l3 7h5l-4 4 1.5 7L12 17l-5.5 3L8 13 4 9h5z"/></svg>`;
+          const trashIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
+
+          const notesList = sortedNotes.length === 0
+            ? `<div class="cn-empty">No notes yet — add one above</div>`
+            : sortedNotes.map(n => {
+                const ts = new Date(n.createdAt);
+                const dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: ts.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined });
+                const timeStr = ts.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                return `
+                  <div class="cn-note ${n.pinned ? 'cn-pinned' : ''}" data-note-id="${n.id}">
+                    ${n.pinned ? `<div class="cn-pin-indicator">${pinIcon} Pinned</div>` : ''}
+                    <div class="cn-note-text">${escHtml(n.text)}</div>
+                    <div class="cn-note-foot">
+                      <span class="cn-note-date">${dateStr} · ${timeStr}</span>
+                      <div class="cn-note-actions">
+                        <button class="cn-action-btn ${n.pinned ? 'cn-action-active' : ''}" data-cn-pin="${n.id}" data-client-id="${client.id}" title="${n.pinned ? 'Unpin' : 'Pin note'}">${pinIcon}</button>
+                        <button class="cn-action-btn cn-action-del" data-cn-del="${n.id}" data-client-id="${client.id}" title="Delete note">${trashIcon}</button>
+                      </div>
+                    </div>
+                  </div>`;
+              }).join('');
+
+          return `
+          <div class="detail-section cn-section">
+            <div class="detail-section-title">
+              Notes${sortedNotes.length > 0 ? ` <span class="cn-count">${sortedNotes.length}</span>` : ''}
+            </div>
+            <div class="cn-compose">
+              <textarea class="cn-input" id="cn-input-${client.id}" placeholder="Add a note or reminder…" rows="2"></textarea>
+              <button class="cn-add-btn" data-cn-add="${client.id}">Add</button>
+            </div>
+            <div class="cn-list">${notesList}</div>
+          </div>`;
+        })()}
 
       </div>
 
@@ -1070,11 +1244,20 @@ function renderToday() {
         if (!client) return '';
         const isDone = sj.status === 'done';
         const color = avatarColor(client.name);
+        const notes = client.clientNotes || [];
+        const hasPinned = notes.some(n => n.pinned);
+        const hasNotes  = notes.length > 0;
+        const notesBadge = hasNotes
+          ? `<span class="cn-job-badge ${hasPinned ? 'cn-job-badge-pin' : ''}" title="${hasPinned ? 'Has pinned note' : 'Has notes'}">
+               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+               ${notes.length}
+             </span>`
+          : '';
         return `
-          <div class="today-route-row ${isDone ? 'today-route-done' : ''}">
+          <div class="today-route-row ${isDone ? 'today-route-done' : ''} ${hasNotes ? 'today-route-has-notes' : ''}" data-today-nav-client="${client.id}">
             <div class="sched-avatar" style="background:${color}">${initials(client.name)}</div>
             <div class="today-route-info">
-              <div class="today-route-name">${escHtml(client.name)}</div>
+              <div class="today-route-name">${escHtml(client.name)}${notesBadge}</div>
               <div class="today-route-addr">${escHtml(client.address || 'No address')}</div>
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
@@ -1146,181 +1329,349 @@ function renderToday() {
 
 // ===== REPORTS VIEW =====
 function renderReports() {
-  const data = getData();
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth(); // 0-indexed
+  const data  = getData();
+  const period = state.reportsPeriod || 'YTD';
+  const now   = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
 
-  // --- Revenue by month (last 12 months) ---
+  // ── Date range ──────────────────────────────────────────────────────────────
+  let startStr;
+  if      (period === '1M')  startStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  else if (period === '3M')  { const d = new Date(now); d.setMonth(d.getMonth() - 3);  startStr = d.toISOString().slice(0, 10); }
+  else if (period === '6M')  { const d = new Date(now); d.setMonth(d.getMonth() - 6);  startStr = d.toISOString().slice(0, 10); }
+  else if (period === 'YTD') startStr = `${now.getFullYear()}-01-01`;
+  else                       startStr = '2000-01-01';
+
+  const inRange = date => { const d = (date || '').slice(0, 10); return d >= startStr && d <= todayStr; };
+
+  // ── Collect payments ────────────────────────────────────────────────────────
+  const paidPmts = [], unpaidPmts = [];
+  for (const c of data.clients) {
+    for (const p of (c.payments || [])) {
+      if (!inRange(p.date)) continue;
+      const obj = { ...p, clientId: c.id, clientName: c.name };
+      (p.status === 'paid' ? paidPmts : unpaidPmts).push(obj);
+    }
+  }
+
+  // ── Collect expenses & time ──────────────────────────────────────────────────
+  const periodExpenses  = (data.expenses   || []).filter(e => inRange(e.date));
+  const periodTime      = (data.timeEntries|| []).filter(e => inRange(e.date));
+  const hasTime         = periodTime.length > 0;
+
+  // ── Core KPIs ───────────────────────────────────────────────────────────────
+  const totalRevenue    = paidPmts.reduce((s, p) => s + p.amount, 0);
+  const totalOutstanding= unpaidPmts.reduce((s, p) => s + p.amount, 0);
+  const totalExpenses   = periodExpenses.reduce((s, e) => s + e.amount, 0);
+  const netProfit       = totalRevenue - totalExpenses;
+  const margin          = totalRevenue > 0 ? netProfit / totalRevenue * 100 : null;
+  const jobsCount       = paidPmts.length;
+  const avgPerJob       = jobsCount > 0 ? totalRevenue / jobsCount : 0;
+  const totalMins       = periodTime.reduce((s, e) => s + (e.durationMins || 0), 0);
+  const totalHours      = totalMins / 60;
+  const effectiveRate   = totalHours > 0 ? totalRevenue / totalHours : 0;
+  const avgJobMins      = hasTime && jobsCount > 0 ? totalMins / jobsCount : 0;
+  const activeClientSet = new Set(paidPmts.map(p => p.clientId));
+  const collectionPct   = (totalRevenue + totalOutstanding) > 0
+    ? Math.round(totalRevenue / (totalRevenue + totalOutstanding) * 100) : 100;
+
+  // ── Previous period delta (revenue) ─────────────────────────────────────────
+  let prevRevenue = 0;
+  if (period !== 'all') {
+    const rangeMs  = new Date(todayStr).getTime() - new Date(startStr).getTime();
+    const prevEnd  = new Date(new Date(startStr).getTime() - 86400000).toISOString().slice(0, 10);
+    const prevStart= new Date(new Date(startStr).getTime() - rangeMs - 86400000).toISOString().slice(0, 10);
+    for (const c of data.clients)
+      for (const p of (c.payments || []))
+        if ((p.date || '').slice(0, 10) >= prevStart && (p.date || '').slice(0, 10) <= prevEnd && p.status === 'paid')
+          prevRevenue += p.amount;
+  }
+  const revGrowth = prevRevenue > 0 ? Math.round((totalRevenue - prevRevenue) / prevRevenue * 100) : null;
+
+  // ── Monthly trend buckets (last 12 months always) ──────────────────────────
   const monthBuckets = [];
   for (let i = 11; i >= 0; i--) {
-    const d = new Date(currentYear, currentMonth - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    const label = d.toLocaleDateString('en-US', { month: 'short' });
-    monthBuckets.push({ key, label, paid: 0, unpaid: 0 });
+    const d   = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    monthBuckets.push({ key, label: d.toLocaleDateString('en-US', { month: 'short' }), revenue: 0, expenses: 0 });
   }
-  for (const c of data.clients) {
-    for (const p of (c.payments || [])) {
-      const key = (p.date || '').slice(0,7);
-      const bucket = monthBuckets.find(b => b.key === key);
-      if (bucket) {
-        if (p.status === 'paid') bucket.paid += p.amount;
-        else bucket.unpaid += p.amount;
-      }
-    }
+  for (const p of paidPmts)      { const b = monthBuckets.find(m => m.key === (p.date || '').slice(0, 7)); if (b) b.revenue  += p.amount; }
+  for (const e of periodExpenses) { const b = monthBuckets.find(m => m.key === (e.date || '').slice(0, 7)); if (b) b.expenses += e.amount; }
+  const maxMonthVal = Math.max(...monthBuckets.map(b => Math.max(b.revenue, b.expenses)), 1);
+
+  // ── Day-of-week buckets ─────────────────────────────────────────────────────
+  const dowRev = [0, 0, 0, 0, 0, 0, 0];
+  const dowJobs= [0, 0, 0, 0, 0, 0, 0];
+  for (const p of paidPmts) {
+    const dow = new Date((p.date || '').slice(0, 10) + 'T12:00:00').getDay();
+    dowRev[dow]  += p.amount;
+    dowJobs[dow] += 1;
   }
-  const maxRevenue = Math.max(...monthBuckets.map(b => b.paid + b.unpaid), 1);
+  const maxDowRev = Math.max(...dowRev, 1);
+  const bestDow   = dowRev.indexOf(Math.max(...dowRev));
 
-  // --- Time by month (last 12 months) ---
-  const timeBuckets = {};
-  for (const b of monthBuckets) timeBuckets[b.key] = 0;
-  for (const e of (data.timeEntries || [])) {
-    const key = (e.date || '').slice(0,7);
-    if (timeBuckets[key] !== undefined) timeBuckets[key] += (e.durationMins || 0);
+  // ── Per-client stats ────────────────────────────────────────────────────────
+  const clientMap = {};
+  for (const p of paidPmts) {
+    if (!clientMap[p.clientId]) clientMap[p.clientId] = { clientId: p.clientId, name: p.clientName, revenue: 0, jobs: 0, lastDate: '', hours: 0 };
+    const cs = clientMap[p.clientId];
+    cs.revenue += p.amount; cs.jobs++;
+    if (!cs.lastDate || p.date > cs.lastDate) cs.lastDate = p.date.slice(0, 10);
   }
-  const maxMins = Math.max(...Object.values(timeBuckets), 1);
+  for (const e of periodTime)
+    if (e.clientId && clientMap[e.clientId]) clientMap[e.clientId].hours += (e.durationMins || 0) / 60;
 
-  // --- YTD stats ---
-  const yearStart = `${currentYear}-01-01`;
-  let ytdPaid = 0, ytdUnpaid = 0, ytdJobs = 0;
-  for (const c of data.clients) {
-    for (const p of (c.payments || [])) {
-      if ((p.date || '') >= yearStart) {
-        if (p.status === 'paid') { ytdPaid += p.amount; ytdJobs++; }
-        else ytdUnpaid += p.amount;
-      }
-    }
+  const clientStats  = Object.values(clientMap).sort((a, b) => b.revenue - a.revenue);
+  const maxClientRev = clientStats.length > 0 ? clientStats[0].revenue : 1;
+  const repeatClients= clientStats.filter(c => c.jobs >= 2).length;
+  const avgVisitsPerClient = clientStats.length > 0 ? (jobsCount / clientStats.length).toFixed(1) : '—';
+
+  // ── Hours per client ────────────────────────────────────────────────────────
+  const hoursMap = {};
+  let generalMins = 0;
+  for (const e of periodTime) {
+    if (e.clientId) hoursMap[e.clientId] = (hoursMap[e.clientId] || 0) + (e.durationMins || 0);
+    else            generalMins += (e.durationMins || 0);
   }
-  const ytdMins = (data.timeEntries || []).filter(e => (e.date || '') >= yearStart).reduce((s,e) => s + (e.durationMins||0), 0);
-  const ytdH = Math.floor(ytdMins / 60);
-  const ytdM = ytdMins % 60;
-  const ytdHoursLabel = ytdMins > 0 ? (ytdH > 0 ? `${ytdH}h ${ytdM}m` : `${ytdM}m`) : '—';
-  const ratePerHour = ytdMins > 0 ? (ytdPaid / (ytdMins / 60)) : 0;
+  const hoursRows = Object.entries(hoursMap)
+    .map(([id, mins]) => { const c = data.clients.find(x => x.id === id); return { name: c ? c.name : 'Unknown', mins, clientId: id }; })
+    .sort((a, b) => b.mins - a.mins);
+  if (generalMins > 0) hoursRows.push({ name: 'General / No client', mins: generalMins, clientId: null });
+  const maxHoursMins = Math.max(...hoursRows.map(r => r.mins), 1);
 
-  // --- Top clients ---
-  const clientRevenue = data.clients.map(c => ({
-    client: c,
-    paid: (c.payments||[]).filter(p=>p.status==='paid').reduce((s,p)=>s+p.amount,0),
-    jobs: (c.payments||[]).filter(p=>p.status==='paid').length,
-  })).filter(r=>r.paid>0).sort((a,b)=>b.paid-a.paid).slice(0,5);
-  const maxClientPaid = clientRevenue.length > 0 ? clientRevenue[0].paid : 1;
+  // ── Expense by category ─────────────────────────────────────────────────────
+  const expByCat = {};
+  for (const e of periodExpenses) {
+    if (!expByCat[e.category]) expByCat[e.category] = { catId: e.category, cat: EXPENSE_CATEGORIES.find(c => c.id === e.category) || { label: 'Other', emoji: '📦' }, total: 0, count: 0 };
+    expByCat[e.category].total += e.amount;
+    expByCat[e.category].count++;
+  }
+  const expCatList   = Object.values(expByCat).sort((a, b) => b.total - a.total);
+  const maxExpCatVal = expCatList.length > 0 ? expCatList[0].total : 1;
 
-  // --- Recent time entries ---
-  const recentEntries = [...(data.timeEntries||[])].sort((a,b)=>b.clockIn.localeCompare(a.clockIn)).slice(0,8);
+  // ── Format helpers ───────────────────────────────────────────────────────────
+  const fmtMins = mins => { const h = Math.floor(mins / 60), m = mins % 60; return h > 0 ? `${h}h ${m > 0 ? m + 'm' : ''}` : `${m}m`; };
+  const recencyLabel = dateStr => {
+    if (!dateStr) return '—';
+    const days = Math.floor((Date.now() - new Date(dateStr + 'T12:00:00').getTime()) / 86400000);
+    if (days === 0) return 'Today'; if (days === 1) return 'Yesterday';
+    if (days < 7) return `${days}d ago`; if (days < 30) return `${Math.floor(days / 7)}w ago`;
+    if (days < 365) return `${Math.floor(days / 30)}mo ago`; return `${Math.floor(days / 365)}y ago`;
+  };
+  const recencyColor = dateStr => {
+    if (!dateStr) return 'var(--text-muted)';
+    const days = Math.floor((Date.now() - new Date(dateStr + 'T12:00:00').getTime()) / 86400000);
+    return days <= 14 ? 'var(--green-primary)' : days <= 45 ? '#d97706' : 'var(--danger)';
+  };
 
-  // --- Revenue chart HTML ---
-  const revenueChartHTML = monthBuckets.map(b => {
-    const paidPct = Math.round((b.paid / maxRevenue) * 100);
-    const unpaidPct = Math.round((b.unpaid / maxRevenue) * 100);
+  // ── HTML: KPI cards ─────────────────────────────────────────────────────────
+  const revGrowthHtml = revGrowth !== null
+    ? `<div class="rpt-kpi-delta ${revGrowth >= 0 ? 'up' : 'down'}">${revGrowth >= 0 ? '↑' : '↓'} ${Math.abs(revGrowth)}% vs prev period</div>` : '';
+
+  const kpiCards = [
+    { label: 'Revenue',        value: formatCurrency(totalRevenue),    cls: totalRevenue > 0 ? 'green' : '', extra: revGrowthHtml },
+    { label: 'Outstanding',    value: formatCurrency(totalOutstanding), cls: totalOutstanding > 0 ? 'amber' : '' },
+    { label: 'Net Profit',     value: formatCurrency(netProfit),        cls: netProfit >= 0 ? 'green' : 'red' },
+    { label: 'Profit Margin',  value: margin !== null ? `${margin.toFixed(0)}%` : '—', cls: margin !== null && margin >= 50 ? 'green' : margin !== null && margin >= 0 ? 'amber' : 'red' },
+    { label: 'Jobs Done',      value: jobsCount || '—' },
+    { label: 'Avg / Job',      value: avgPerJob > 0 ? formatCurrency(avgPerJob) : '—', cls: 'green' },
+    { label: 'Hours Worked',   value: totalMins > 0 ? fmtMins(totalMins) : '—' },
+    { label: 'Effective $/hr', value: effectiveRate > 0 ? formatCurrency(effectiveRate) : '—', cls: effectiveRate > 0 ? 'green' : '' },
+  ].map(k => `
+    <div class="rpt-kpi">
+      <div class="rpt-kpi-label">${k.label}</div>
+      <div class="rpt-kpi-value ${k.cls || ''}">${k.value}</div>
+      ${k.extra || ''}
+    </div>`).join('');
+
+  // ── HTML: Monthly trend chart ────────────────────────────────────────────────
+  const trendHTML = monthBuckets.map(b => {
+    const rPct = Math.round(b.revenue  / maxMonthVal * 100);
+    const ePct = Math.round(b.expenses / maxMonthVal * 100);
     return `
-      <div class="rpt-bar-col">
-        <div class="rpt-bar-wrap">
-          ${b.unpaid > 0 ? `<div class="rpt-bar rpt-bar-unpaid" style="height:${unpaidPct}%" title="${formatCurrency(b.unpaid)} unpaid"></div>` : ''}
-          ${b.paid > 0 ? `<div class="rpt-bar rpt-bar-paid" style="height:${paidPct}%" title="${formatCurrency(b.paid)} paid"></div>` : ''}
+      <div class="rpt-trend-col" data-month="${b.label}" data-rev="${b.revenue}" data-exp="${b.expenses}">
+        <div class="rpt-trend-bars">
+          <div class="rpt-trend-bar rpt-bar-rev" style="height:${rPct}%"></div>
+          <div class="rpt-trend-bar rpt-bar-exp" style="height:${ePct}%"></div>
         </div>
-        <div class="rpt-bar-label">${b.label}</div>
+        <div class="rpt-trend-label">${b.label}</div>
       </div>`;
   }).join('');
 
-  // --- Hours chart HTML ---
-  const hoursChartHTML = monthBuckets.map(b => {
-    const mins = timeBuckets[b.key] || 0;
-    const pct = Math.round((mins / maxMins) * 100);
-    return `
-      <div class="rpt-bar-col">
-        <div class="rpt-bar-wrap">
-          ${mins > 0 ? `<div class="rpt-bar rpt-bar-hours" style="height:${pct}%" title="${Math.floor(mins/60)}h ${mins%60}m"></div>` : ''}
-        </div>
-        <div class="rpt-bar-label">${b.label}</div>
-      </div>`;
-  }).join('');
-
-  // --- Top clients HTML ---
-  const topClientsHTML = clientRevenue.length === 0
-    ? `<div class="rpt-empty">No revenue data yet.</div>`
-    : clientRevenue.map(r => {
-        const pct = Math.round((r.paid / maxClientPaid) * 100);
+  // ── HTML: Client leaderboard ─────────────────────────────────────────────────
+  const leaderHTML = clientStats.length === 0
+    ? `<div class="rpt-empty-sm">No revenue recorded this period.</div>`
+    : clientStats.slice(0, 10).map((cs, i) => {
+        const avg    = cs.jobs > 0 ? cs.revenue / cs.jobs : 0;
+        const barPct = Math.round(cs.revenue / maxClientRev * 100);
+        const rateStr= cs.hours > 0 ? ` · ${formatCurrency(cs.revenue / cs.hours)}/hr` : '';
         return `
-          <div class="rpt-client-row" data-nav-client-page="${r.client.id}">
-            <div class="sched-avatar" style="background:${avatarColor(r.client.name)};width:32px;height:32px;font-size:12px;flex-shrink:0">${initials(r.client.name)}</div>
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                <span class="rpt-client-name">${escHtml(r.client.name)}</span>
-                <span class="rpt-client-amount">${formatCurrency(r.paid)}</span>
+          <div class="rpt-client-row" data-nav-client-page="${cs.clientId}">
+            <div class="rpt-client-rank">#${i + 1}</div>
+            <div class="sched-avatar" style="background:${avatarColor(cs.name)};width:32px;height:32px;font-size:12px;flex-shrink:0">${initials(cs.name)}</div>
+            <div class="rpt-client-info">
+              <div class="rpt-client-name-row">
+                <span class="rpt-client-name">${escHtml(cs.name)}</span>
+                <span class="rpt-client-revenue">${formatCurrency(cs.revenue)}</span>
               </div>
-              <div class="rpt-client-bar-track">
-                <div class="rpt-client-bar-fill" style="width:${pct}%"></div>
-              </div>
+              <div class="rpt-client-bar-track"><div class="rpt-client-bar-fill" style="width:${barPct}%"></div></div>
+              <div class="rpt-client-meta">${cs.jobs} job${cs.jobs !== 1 ? 's' : ''} · avg ${formatCurrency(avg)}${cs.hours > 0 ? ` · ${cs.hours.toFixed(1)}h` : ''}${rateStr}</div>
             </div>
+            <div class="rpt-client-recency" style="color:${recencyColor(cs.lastDate)}">${recencyLabel(cs.lastDate)}</div>
           </div>`;
       }).join('');
 
-  // --- Time entries HTML ---
-  const timeEntriesHTML = recentEntries.length === 0
-    ? `<div class="rpt-empty">No time entries yet. Use Clock In/Out on the Today page.</div>`
-    : recentEntries.map(e => {
-        const client = e.clientId ? data.clients.find(c=>c.id===e.clientId) : null;
-        const h = Math.floor((e.durationMins||0)/60);
-        const m = (e.durationMins||0)%60;
-        const dur = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  // ── HTML: Expense breakdown ──────────────────────────────────────────────────
+  const expHTML = expCatList.length === 0
+    ? `<div class="rpt-empty-sm">No expenses logged this period.</div>`
+    : expCatList.map(e => {
+        const color  = EXPENSE_CAT_COLORS[e.catId] || '#94a3b8';
+        const barPct = Math.round(e.total / maxExpCatVal * 100);
+        return `
+          <div class="rpt-exp-row">
+            <div class="rpt-exp-icon" style="background:${color}1a;color:${color}">${e.cat.emoji}</div>
+            <div class="rpt-exp-info">
+              <div class="rpt-exp-name">${escHtml(e.cat.label)}</div>
+              <div class="rpt-exp-bar-track"><div class="rpt-exp-bar-fill" style="width:${barPct}%;background:${color}"></div></div>
+            </div>
+            <div class="rpt-exp-amount">${formatCurrency(e.total)}</div>
+          </div>`;
+      }).join('');
+
+  // ── HTML: Day-of-week chart ──────────────────────────────────────────────────
+  const DOW_LABELS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const DOW_ORDER    = [1, 2, 3, 4, 5, 6, 0]; // Mon→Sun display order
+  const dowHTML = DOW_ORDER.map(i => {
+    const pct    = Math.round(dowRev[i] / maxDowRev * 100);
+    const isBest = i === bestDow && dowRev[i] > 0;
+    return `
+      <div class="rpt-dow-col">
+        <div class="rpt-dow-jobs">${dowJobs[i] > 0 ? dowJobs[i] + (dowJobs[i] === 1 ? ' job' : ' jobs') : ''}</div>
+        <div class="rpt-dow-bar-wrap">
+          <div class="rpt-dow-bar${isBest ? ' best' : ''}" style="height:${Math.max(pct, 2)}%"></div>
+        </div>
+        <div class="rpt-dow-label">${DOW_LABELS[i]}</div>
+        <div class="rpt-dow-rev">${dowRev[i] > 0 ? formatCurrency(dowRev[i]) : '—'}</div>
+      </div>`;
+  }).join('');
+
+  // ── HTML: Time per client ────────────────────────────────────────────────────
+  const timeHTML = !hasTime
+    ? `<div class="rpt-empty-sm">No time logged this period. Use Clock In/Out on the Today page to track hours worked.</div>`
+    : hoursRows.slice(0, 10).map(r => {
+        const barPct   = Math.round(r.mins / maxHoursMins * 100);
+        const cRev     = r.clientId ? (clientMap[r.clientId]?.revenue || 0) : 0;
+        const rate     = r.mins > 0 && cRev > 0 ? cRev / (r.mins / 60) : 0;
         return `
           <div class="rpt-time-row">
-            <div class="rpt-time-dot"></div>
-            <div class="rpt-time-info">
-              <div class="rpt-time-name">${client ? escHtml(client.name) : 'General work'}</div>
-              <div class="rpt-time-date">${formatDate(e.date)}</div>
+            ${r.clientId
+              ? `<div class="sched-avatar" style="background:${avatarColor(r.name)};width:32px;height:32px;font-size:12px;flex-shrink:0">${initials(r.name)}</div>`
+              : `<div class="rpt-time-gen-dot"></div>`}
+            <div class="rpt-time-client">
+              <div class="rpt-time-name">${escHtml(r.name)}</div>
+              <div class="rpt-time-bar-track"><div class="rpt-time-bar-fill" style="width:${barPct}%"></div></div>
             </div>
-            <div class="rpt-time-dur">${dur}</div>
-            <button class="visit-delete-btn" data-delete-entry="${e.id}" title="Delete entry">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-            </button>
+            <div class="rpt-time-stats">
+              <div class="rpt-time-dur">${fmtMins(r.mins)}</div>
+              ${rate > 0 ? `<div class="rpt-time-rate">${formatCurrency(rate)}/hr</div>` : ''}
+            </div>
           </div>`;
       }).join('');
 
+  // ── HTML: Business health grid ───────────────────────────────────────────────
+  const healthCards = [
+    { value: `${collectionPct}%`, label: 'Collection Rate', sub: '% of invoices collected', cls: collectionPct >= 80 ? 'green' : collectionPct >= 60 ? 'amber' : 'red' },
+    { value: activeClientSet.size || '0', label: 'Active Clients', sub: 'paying this period' },
+    { value: repeatClients || '0', label: 'Repeat Clients', sub: '2+ jobs this period', cls: repeatClients > 0 ? 'green' : '' },
+    { value: avgVisitsPerClient, label: 'Avg Jobs / Client', sub: 'this period' },
+    { value: formatCurrency(totalRevenue + totalOutstanding), label: 'Total Invoiced', sub: 'paid + outstanding' },
+    { value: revGrowth !== null ? (revGrowth >= 0 ? '+' : '') + revGrowth + '%' : '—', label: 'Revenue Growth', sub: 'vs previous period', cls: revGrowth !== null && revGrowth >= 0 ? 'green' : revGrowth !== null ? 'red' : '' },
+  ].map(h => `
+    <div class="rpt-health-card">
+      <div class="rpt-health-value ${h.cls || ''}">${h.value}</div>
+      <div class="rpt-health-label">${h.label}</div>
+      <div class="rpt-health-sub">${h.sub}</div>
+    </div>`).join('');
+
+  // ── Assemble ─────────────────────────────────────────────────────────────────
+  const PERIOD_LABELS = { '1M': 'This Month', '3M': 'Last 3M', '6M': 'Last 6M', 'YTD': 'YTD', 'all': 'All Time' };
+
   return `
-    <div class="page-header">
-      <h1>Reports</h1>
-    </div>
+    <div class="rpt-page">
 
-    <div class="rpt-summary-grid">
-      <div class="rpt-stat">
-        <div class="rpt-stat-label">YTD Revenue</div>
-        <div class="rpt-stat-value success">${formatCurrency(ytdPaid)}</div>
+      <div class="rpt-page-header">
+        <div>
+          <h1 class="rpt-page-title">Reports</h1>
+          <p class="rpt-page-sub">Business performance & insights</p>
+        </div>
+        <div class="rpt-period-tabs">
+          ${Object.entries(PERIOD_LABELS).map(([k, l]) =>
+            `<button class="rpt-period-tab${period === k ? ' active' : ''}" data-rpt-period="${k}">${l}</button>`
+          ).join('')}
+        </div>
       </div>
-      <div class="rpt-stat">
-        <div class="rpt-stat-label">Outstanding</div>
-        <div class="rpt-stat-value ${ytdUnpaid>0?'danger':''}">${formatCurrency(ytdUnpaid)}</div>
-      </div>
-      <div class="rpt-stat">
-        <div class="rpt-stat-label">Hours Worked</div>
-        <div class="rpt-stat-value">${ytdHoursLabel}</div>
-      </div>
-      <div class="rpt-stat">
-        <div class="rpt-stat-label">$/Hour Rate</div>
-        <div class="rpt-stat-value success">${ratePerHour > 0 ? formatCurrency(ratePerHour) : '—'}</div>
-      </div>
-    </div>
 
-    <div class="rpt-section">
-      <div class="rpt-section-title">Revenue — Last 12 Months
-        <span class="rpt-legend"><span class="rpt-legend-dot paid"></span>Paid <span class="rpt-legend-dot unpaid"></span>Invoiced</span>
+      <div class="rpt-kpi-grid">${kpiCards}</div>
+
+      <div class="rpt-card rpt-chart-card">
+        <div class="rpt-chart-tt" id="rpt-chart-tt" aria-hidden="true"></div>
+        <div class="rpt-card-head">
+          <div class="rpt-card-title">Revenue vs. Expenses — Last 12 Months</div>
+          <div class="rpt-trend-legend">
+            <span class="rpt-legend-item"><span class="rpt-legend-dot" style="background:var(--green-primary)"></span>Revenue</span>
+            <span class="rpt-legend-item"><span class="rpt-legend-dot" style="background:#f87171"></span>Expenses</span>
+          </div>
+        </div>
+        <div class="rpt-trend-chart">${trendHTML}</div>
       </div>
-      <div class="rpt-chart">${revenueChartHTML}</div>
-    </div>
 
-    <div class="rpt-section">
-      <div class="rpt-section-title">Hours Worked — Last 12 Months</div>
-      <div class="rpt-chart">${hoursChartHTML}</div>
-    </div>
+      <div class="rpt-two-col">
+        <div class="rpt-card">
+          <div class="rpt-card-head">
+            <div class="rpt-card-title">Client Leaderboard</div>
+            <div class="rpt-card-sub">by revenue · tap to open</div>
+          </div>
+          ${leaderHTML}
+        </div>
+        <div class="rpt-card">
+          <div class="rpt-card-head">
+            <div class="rpt-card-title">Expense Breakdown</div>
+            <div class="rpt-card-sub">${formatCurrency(totalExpenses)} total</div>
+          </div>
+          ${expHTML}
+          ${expCatList.length > 0 ? `
+            <div class="rpt-exp-net">
+              <span>Net profit</span>
+              <strong style="color:${netProfit >= 0 ? 'var(--green-primary)' : 'var(--danger)'}">${formatCurrency(netProfit)}</strong>
+            </div>` : ''}
+        </div>
+      </div>
 
-    <div class="rpt-section">
-      <div class="rpt-section-title">Top Clients by Revenue</div>
-      <div class="rpt-clients-list">${topClientsHTML}</div>
-    </div>
+      <div class="rpt-card">
+        <div class="rpt-card-head">
+          <div class="rpt-card-title">Revenue by Day of Week</div>
+          <div class="rpt-card-sub">${jobsCount > 0 ? `best day: <strong>${DOW_LABELS[bestDow]}</strong> — ${formatCurrency(dowRev[bestDow])}` : 'no jobs this period'}</div>
+        </div>
+        <div class="rpt-dow-grid">${dowHTML}</div>
+      </div>
 
-    <div class="rpt-section">
-      <div class="rpt-section-title">Time Log</div>
-      <div class="rpt-time-list">${timeEntriesHTML}</div>
+      <div class="rpt-card">
+        <div class="rpt-card-head">
+          <div class="rpt-card-title">Time Worked</div>
+          <div class="rpt-card-sub">${totalMins > 0 ? `${fmtMins(totalMins)} total${effectiveRate > 0 ? ' · ' + formatCurrency(effectiveRate) + '/hr effective' : ''}` : 'no time logged'}</div>
+        </div>
+        ${timeHTML}
+      </div>
+
+      <div class="rpt-card">
+        <div class="rpt-card-head">
+          <div class="rpt-card-title">Business Health</div>
+          <div class="rpt-card-sub">${period === 'all' ? 'all time' : PERIOD_LABELS[period]}</div>
+        </div>
+        <div class="rpt-health-grid">${healthCards}</div>
+      </div>
+
+      <div class="spacer"></div>
     </div>`;
 }
 
@@ -1672,7 +2023,7 @@ function computeExpensesData() {
   for (const c of data.clients || []) {
     for (const p of c.payments || []) {
       if (p.date >= startISO && p.date <= endISO)
-        allPayments.push({ ...p, clientName: c.name });
+        allPayments.push({ ...p, clientName: c.name, clientId: c.id });
     }
   }
 
@@ -1750,6 +2101,7 @@ function computeExpensesData() {
       category: 'Revenue',
       amount: p.amount,
       status: p.status === 'paid' ? 'cleared' : 'pending',
+      id: p.id, clientId: p.clientId, source: 'payment',
     })),
     ...expRec.map(e => ({
       date: e.date, isInflow: false,
@@ -1757,6 +2109,7 @@ function computeExpensesData() {
       category: EXPENSE_CATEGORIES.find(c => c.id === e.category)?.label || e.category || 'Other',
       amount: e.amount,
       status: 'paid',
+      id: e.id, source: 'expense',
     })),
     ...incRec.map(e => ({
       date: e.date, isInflow: true,
@@ -1764,10 +2117,83 @@ function computeExpensesData() {
       category: 'Revenue',
       amount: e.amount,
       status: 'cleared',
+      id: e.id, source: 'expense',
     })),
   ].sort((a, b) => b.date.localeCompare(a.date));
 
   return { totalInflow, totalOutflow, net, avgBurn, deltas, chartLabels, chartInflow, chartOutflow, chartNet, donutData, transactions, monthCount };
+}
+
+// ===== DELETE TRANSACTION =====
+function deleteTx(id, source, clientId) {
+  if (!id) return false;
+  captureUndo();
+  const d = getData();
+  if (source === 'payment' && clientId) {
+    const client = d.clients.find(c => c.id === clientId);
+    if (client) client.payments = (client.payments || []).filter(p => p.id !== id);
+  } else {
+    d.expenses = (d.expenses || []).filter(e => e.id !== id);
+  }
+  saveData(d);
+  return true;
+}
+
+// ===== CATEGORY DRILLDOWN DATA =====
+function computeCatDrilldown(catId, period) {
+  const data        = getData();
+  const allExpenses = (data.expenses || []).filter(e => e.type !== 'income' && e.category === catId);
+  const now         = new Date();
+
+  let monthCount;
+  if      (period === '1M')  monthCount = 1;
+  else if (period === '3M')  monthCount = 3;
+  else if (period === '6M')  monthCount = 6;
+  else if (period === 'YTD') monthCount = now.getMonth() + 1;
+  else                       monthCount = 12;
+
+  // Build ordered month array
+  const months = [];
+  for (let i = monthCount - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ year: d.getFullYear(), month: d.getMonth() });
+  }
+
+  const firstMo  = months[0];
+  const lastMo   = months[months.length - 1];
+  const startISO = `${firstMo.year}-${String(firstMo.month + 1).padStart(2,'0')}-01`;
+  const lastDay  = new Date(lastMo.year, lastMo.month + 1, 0).getDate();
+  const endISO   = `${lastMo.year}-${String(lastMo.month + 1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+
+  const periodExps = allExpenses.filter(e => e.date >= startISO && e.date <= endISO);
+  const total      = periodExps.reduce((s, e) => s + e.amount, 0);
+
+  // Time denominators
+  const startDate = new Date(startISO + 'T12:00:00');
+  const endDate   = new Date(endISO   + 'T12:00:00');
+  const days      = Math.max(1, Math.round((endDate - startDate) / 86400000) + 1);
+  const weeks     = days / 7;
+
+  const avgWeek   = total / weeks;
+  const avgMonth  = total / monthCount;
+  const projAnnual = avgMonth * 12;
+
+  // Monthly breakdown for bar chart
+  const monthlyTotals = months.map(mo => {
+    const prefix  = `${mo.year}-${String(mo.month + 1).padStart(2,'0')}`;
+    const moTotal = periodExps
+      .filter(e => (e.date || '').startsWith(prefix))
+      .reduce((s, e) => s + e.amount, 0);
+    const label   = new Date(mo.year, mo.month, 1)
+      .toLocaleDateString('en-US', { month: 'short' });
+    return { label, total: moTotal };
+  });
+
+  const maxMonthly   = Math.max(...monthlyTotals.map(m => m.total), 1);
+  const transactions = [...periodExps].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const cat = EXPENSE_CATEGORIES.find(c => c.id === catId);
+  return { total, avgWeek, avgMonth, projAnnual, monthlyTotals, maxMonthly, transactions, catId, cat };
 }
 
 // ===== CHART INIT (Cash Flow page) =====
@@ -1858,8 +2284,649 @@ function initCfCharts(cd) {
   }
 }
 
+// ===== DEBT TRACKER =====
+const DEBT_CATEGORIES = [
+  { id: 'vehicle',   label: 'Vehicle',        emoji: '🚛' },
+  { id: 'equipment', label: 'Equipment',       emoji: '🔧' },
+  { id: 'loan',      label: 'Business Loan',  emoji: '🏦' },
+  { id: 'credit',    label: 'Credit Card',    emoji: '💳' },
+  { id: 'property',  label: 'Property',       emoji: '🏠' },
+  { id: 'other',     label: 'Other',          emoji: '📋' },
+];
+
+function debtMonthsLeft(balance, monthlyPayment, annualRate) {
+  if (!balance || !monthlyPayment || monthlyPayment <= 0) return null;
+  if (!annualRate || annualRate <= 0) {
+    return Math.ceil(balance / monthlyPayment);
+  }
+  const r = (annualRate / 100) / 12;
+  if (monthlyPayment <= balance * r) return Infinity; // payment doesn't cover interest
+  return Math.ceil(-Math.log(1 - (balance * r) / monthlyPayment) / Math.log(1 + r));
+}
+
+function debtPayoffDate(monthsLeft) {
+  if (!monthsLeft || !isFinite(monthsLeft)) return null;
+  const d = new Date();
+  d.setMonth(d.getMonth() + monthsLeft);
+  return d;
+}
+
+function renderDebtView() {
+  const data  = getData();
+  const debts = (data.debts || []).sort((a, b) => b.balance - a.balance);
+
+  const totalOwed    = debts.reduce((s, d) => s + (d.balance || 0), 0);
+  const totalMonthly = debts.reduce((s, d) => s + (d.monthlyPayment || 0), 0);
+
+  // Earliest payoff date = latest payoff date among all debts (you're still paying all until then)
+  let latestMonths = 0;
+  for (const d of debts) {
+    const m = debtMonthsLeft(d.balance, d.monthlyPayment, d.interestRate);
+    if (m && isFinite(m) && m > latestMonths) latestMonths = m;
+  }
+  const debtFreeDate = latestMonths > 0 ? debtPayoffDate(latestMonths) : null;
+  const debtFreeLabel = debtFreeDate
+    ? debtFreeDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : debts.length === 0 ? '—' : 'N/A';
+
+  const debtCards = debts.length === 0
+    ? `<div class="debt-empty">No debts tracked yet — add one to get started.</div>`
+    : debts.map(debt => {
+        const cat      = DEBT_CATEGORIES.find(c => c.id === debt.category) || DEBT_CATEGORIES[5];
+        const months   = debtMonthsLeft(debt.balance, debt.monthlyPayment, debt.interestRate);
+        const payoff   = debtPayoffDate(months);
+        const paidOff  = (debt.originalBalance || debt.balance) - debt.balance;
+        const pct      = debt.originalBalance > 0
+          ? Math.min(Math.round((paidOff / debt.originalBalance) * 100), 100) : 0;
+
+        const payoffLabel = !months ? '—'
+          : !isFinite(months) ? 'Never (payment < interest)'
+          : months === 1 ? '1 month'
+          : months < 12 ? `${months} months`
+          : `${Math.floor(months / 12)}y ${months % 12}m`;
+        const payoffDate = payoff
+          ? payoff.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+          : '';
+
+        // Total interest if rate provided
+        let totalInterestLabel = '';
+        if (debt.interestRate > 0 && months && isFinite(months)) {
+          const totalPaid = months * debt.monthlyPayment;
+          const interest  = totalPaid - debt.balance;
+          if (interest > 0) totalInterestLabel = `~${formatCurrency(interest)} interest`;
+        }
+
+        return `
+          <div class="debt-card">
+            <div class="debt-card-head">
+              <span class="debt-cat-badge">${cat.emoji} ${cat.label}</span>
+              <div class="debt-card-actions">
+                <button class="debt-action-btn" data-debt-edit="${debt.id}" title="Edit">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button class="debt-action-btn debt-action-del" data-debt-del="${debt.id}" title="Delete">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="debt-card-name">${escHtml(debt.name)}</div>
+            <div class="debt-card-balance">
+              <span class="debt-balance-num">${formatCurrency(debt.balance)}</span>
+              <span class="debt-balance-of">of ${formatCurrency(debt.originalBalance || debt.balance)} owed</span>
+            </div>
+            <div class="debt-progress-track">
+              <div class="debt-progress-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="debt-progress-label">${pct}% paid off</div>
+            <div class="debt-stats">
+              <div class="debt-stat">
+                <div class="debt-stat-label">Monthly payment</div>
+                <div class="debt-stat-value">${formatCurrency(debt.monthlyPayment)}</div>
+              </div>
+              <div class="debt-stat">
+                <div class="debt-stat-label">Time left</div>
+                <div class="debt-stat-value">${payoffLabel}</div>
+              </div>
+              <div class="debt-stat">
+                <div class="debt-stat-label">Payoff estimate</div>
+                <div class="debt-stat-value">${payoffDate || '—'}</div>
+              </div>
+              ${debt.interestRate > 0 ? `
+              <div class="debt-stat">
+                <div class="debt-stat-label">APR</div>
+                <div class="debt-stat-value">${debt.interestRate}%${totalInterestLabel ? ` · ${totalInterestLabel}` : ''}</div>
+              </div>` : ''}
+            </div>
+            ${debt.notes ? `<div class="debt-notes">${escHtml(debt.notes)}</div>` : ''}
+          </div>`;
+      }).join('');
+
+  return `
+    <div class="cf-wrap">
+      <div class="cf-header">
+        <div class="cf-header-left">
+          <h1 class="cf-title">Debt Tracker</h1>
+          <p class="cf-subtitle">Loans, payments &amp; payoff estimates</p>
+        </div>
+        <div class="cf-header-right">
+          <div class="cf-tab-group">
+            <button class="cf-tab-btn" data-exp-tab="cashflow">Cash Flow</button>
+            <button class="cf-tab-btn active" data-exp-tab="debt">Debt</button>
+          </div>
+          <button class="cf-add-btn" id="debt-add-btn">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;flex-shrink:0"><line x1="7" y1="1" x2="7" y2="13"/><line x1="1" y1="7" x2="13" y2="7"/></svg>
+            Add debt
+          </button>
+        </div>
+      </div>
+
+      <div class="debt-summary-grid">
+        <div class="cf-metric">
+          <span class="cf-metric-label">Total owed</span>
+          <span class="cf-metric-value" style="color:var(--danger)">${formatCurrency(totalOwed)}</span>
+        </div>
+        <div class="cf-metric">
+          <span class="cf-metric-label">Monthly payments</span>
+          <span class="cf-metric-value">${formatCurrency(totalMonthly)}</span>
+        </div>
+        <div class="cf-metric">
+          <span class="cf-metric-label">Debt-free estimate</span>
+          <span class="cf-metric-value" style="font-size:18px">${debtFreeLabel}</span>
+        </div>
+        <div class="cf-metric">
+          <span class="cf-metric-label">Active debts</span>
+          <span class="cf-metric-value">${debts.length}</span>
+        </div>
+      </div>
+
+      <div class="debt-cards-grid">${debtCards}</div>
+      <div class="spacer"></div>
+    </div>`;
+}
+
+function renderDebtForm(debt = {}) {
+  const isEdit = !!debt.id;
+  const selCat = debt.category || 'vehicle';
+  return `
+    <div class="sheet-header">
+      <div>
+        <h2>${isEdit ? 'Edit Debt' : 'Add Debt'}</h2>
+        <p class="sheet-header-sub">Track a loan, payment plan, or liability</p>
+      </div>
+      <button class="sheet-close" id="sheet-close-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="form-body">
+
+      <div class="form-group">
+        <label class="form-label">Name *</label>
+        <input class="form-input" id="df-name" type="text" placeholder="e.g. Truck Payment" value="${escHtml(debt.name || '')}" autocomplete="off" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <div class="df-cat-grid" id="df-cat-select">
+          ${DEBT_CATEGORIES.map(c => `
+            <button class="df-cat-tile ${selCat === c.id ? 'selected' : ''}" data-df-cat="${c.id}">
+              <span class="df-cat-tile-emoji">${c.emoji}</span>
+              <span class="df-cat-tile-label">${c.label}</span>
+            </button>`).join('')}
+        </div>
+        <input type="hidden" id="df-cat" value="${selCat}" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Current balance owed *</label>
+        <div class="form-prefix-wrap">
+          <span class="form-prefix">$</span>
+          <input class="form-input" id="df-balance" type="number" placeholder="11,500" min="0" step="1" inputmode="decimal" value="${debt.balance || ''}" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Original balance <span class="form-label-opt">optional</span></label>
+        <div class="form-prefix-wrap">
+          <span class="form-prefix">$</span>
+          <input class="form-input" id="df-original" type="number" placeholder="Same as current" min="0" step="1" inputmode="decimal" value="${debt.originalBalance || ''}" />
+        </div>
+      </div>
+
+      <div class="df-two-col">
+        <div class="form-group">
+          <label class="form-label">Monthly payment *</label>
+          <div class="form-prefix-wrap">
+            <span class="form-prefix">$</span>
+            <input class="form-input" id="df-payment" type="number" placeholder="1,500" min="0" step="1" inputmode="decimal" value="${debt.monthlyPayment || ''}" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Interest rate <span class="form-label-opt">APR</span></label>
+          <div class="form-suffix-wrap">
+            <input class="form-input" id="df-rate" type="number" placeholder="0" min="0" max="100" step="0.1" inputmode="decimal" value="${debt.interestRate || ''}" />
+            <span class="form-suffix">%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notes <span class="form-label-opt">optional</span></label>
+        <input class="form-input" id="df-notes" type="text" placeholder="e.g. refinanced Mar 2025" value="${escHtml(debt.notes || '')}" />
+      </div>
+
+      <div class="df-eta-wrap" id="df-eta-preview"></div>
+
+    </div>
+    <div class="sheet-footer" style="${isEdit ? 'display:flex;gap:8px' : ''}">
+      ${isEdit ? `<button class="btn btn-danger-outline" id="df-delete-btn" data-debt-id="${debt.id}">Delete</button>` : ''}
+      <button class="btn btn-primary ${isEdit ? '' : 'btn-full'}" style="${isEdit ? 'flex:1' : ''}" id="df-save-btn" data-debt-id="${debt.id || ''}">
+        ${isEdit ? 'Save Changes' : 'Add Debt'}
+      </button>
+    </div>`;
+}
+
+// ===== TOOLS VIEW =====
+function computeToolResult(toolId, vals, card) {
+  const fmt  = n => Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 });
+  const fmt2 = n => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtC = n => '$' + fmt2(n);
+
+  const statBlock = (items) => `
+    <div class="tool-result-stats">
+      ${items.map(s => `
+        <div class="tool-result-stat${s.green ? ' green' : ''}${s.amber ? ' amber' : ''}">
+          <div class="tool-result-val">${s.val}</div>
+          <div class="tool-result-lbl">${s.lbl}</div>
+        </div>`).join('')}
+    </div>`;
+
+  // ── Mulch & Topsoil ──────────────────────────────────────────────────────────
+  if (toolId === 'mulch' || toolId === 'topsoil') {
+    const { length: L, width: W, depth: D } = vals;
+    if (!L || !W || !D) return '';
+    const cuYds      = (L * W * (D / 12)) / 27;
+    const cuYdsWaste = cuYds * 1.10;
+    const bags2      = Math.ceil(cuYdsWaste * 13.5);
+    const bags3      = Math.ceil(cuYdsWaste * 9);
+    const area       = L * W;
+    return statBlock([
+      { val: fmt(cuYds),      lbl: 'cubic yards' },
+      { val: fmt(cuYdsWaste), lbl: 'cu yds +10% waste' },
+      { val: bags2,           lbl: '2 cu ft bags', green: true },
+      { val: bags3,           lbl: '3 cu ft bags', green: true },
+    ]) + `<div class="tool-result-note">Coverage: ${fmt(area)} sq ft at ${D}" deep</div>`;
+  }
+
+  // ── Gravel / Rock ────────────────────────────────────────────────────────────
+  if (toolId === 'gravel') {
+    const { length: L, width: W, depth: D } = vals;
+    if (!L || !W || !D) return '';
+    const cuYds  = (L * W * (D / 12)) / 27;
+    const waste  = cuYds * 1.10;
+    const typeEl = card.querySelector('select[data-field="gtype"]');
+    const gtype  = typeEl ? typeEl.value : 'gravel';
+    const density = { gravel: 1.4, pea: 1.2, limestone: 1.35, river: 1.3 }[gtype] || 1.4;
+    const tons = waste * density;
+    return statBlock([
+      { val: fmt(cuYds), lbl: 'cubic yards' },
+      { val: fmt(waste), lbl: 'cu yds +10% waste' },
+      { val: fmt(tons),  lbl: 'tons approx.', green: true },
+    ]) + `<div class="tool-result-note">${fmt(L * W)} sq ft · ≈${density} tons/yd³ for selected type</div>`;
+  }
+
+  // ── Sod ──────────────────────────────────────────────────────────────────────
+  if (toolId === 'sod') {
+    const { length: L, width: W } = vals;
+    if (!L || !W) return '';
+    const sqFt    = L * W;
+    const waste   = sqFt * 1.05;
+    const pallets = Math.ceil(waste / 450);
+    const rolls   = Math.ceil(waste / 9);
+    return statBlock([
+      { val: fmt(sqFt),   lbl: 'sq ft' },
+      { val: pallets,     lbl: 'pallets (450 sq ft)', green: true },
+      { val: rolls,       lbl: 'rolls (9 sq ft)',     green: true },
+    ]) + `<div class="tool-result-note">5% waste included · 1 pallet ≈ 450 sq ft</div>`;
+  }
+
+  // ── Lawn Area ────────────────────────────────────────────────────────────────
+  if (toolId === 'area') {
+    const shape = card.querySelector('.tool-shape-tab.active')?.dataset.shape || 'rect';
+    if (shape === 'rect') {
+      const { length: L, width: W } = vals;
+      if (!L || !W) return '';
+      const sqFt = L * W;
+      return statBlock([
+        { val: fmt(sqFt),          lbl: 'sq ft',    green: true },
+        { val: fmt(sqFt / 9),      lbl: 'sq yards' },
+        { val: fmt(sqFt * 0.0929), lbl: 'sq meters' },
+      ]);
+    }
+    if (shape === 'circle') {
+      const { radius: R } = vals;
+      if (!R) return '';
+      const sqFt = Math.PI * R * R;
+      return statBlock([
+        { val: fmt(sqFt),     lbl: 'sq ft',    green: true },
+        { val: fmt(sqFt / 9), lbl: 'sq yards' },
+        { val: fmt(R * 2 * Math.PI), lbl: 'ft circumference' },
+      ]);
+    }
+    if (shape === 'triangle') {
+      const { base: B, height: H } = vals;
+      if (!B || !H) return '';
+      const sqFt = 0.5 * B * H;
+      return statBlock([
+        { val: fmt(sqFt),     lbl: 'sq ft',    green: true },
+        { val: fmt(sqFt / 9), lbl: 'sq yards' },
+      ]);
+    }
+    if (shape === 'lshape') {
+      const { l1, w1, l2, w2 } = vals;
+      if (!l1 || !w1 || !l2 || !w2) return '';
+      const sqFt = (l1 * w1) + (l2 * w2);
+      return statBlock([
+        { val: fmt(sqFt),     lbl: 'sq ft',    green: true },
+        { val: fmt(sqFt / 9), lbl: 'sq yards' },
+      ]) + `<div class="tool-result-note">Section A: ${fmt(l1*w1)} sq ft · Section B: ${fmt(l2*w2)} sq ft</div>`;
+    }
+  }
+
+  // ── Grass Seed ───────────────────────────────────────────────────────────────
+  if (toolId === 'seed') {
+    const { area } = vals;
+    const typeEl = card.querySelector('select[data-field="stype"]');
+    const stype  = typeEl ? typeEl.value : 'fescue';
+    if (!area) return '';
+    const RATES = {
+      fescue:   { new: 8,   over: 4,   label: 'Tall Fescue'         },
+      bermuda:  { new: 2,   over: 0.75,label: 'Bermuda'             },
+      kentucky: { new: 3,   over: 1.5, label: 'Kentucky Bluegrass'  },
+      zoysia:   { new: 2,   over: 1,   label: 'Zoysia'              },
+      rye:      { new: 8,   over: 4,   label: 'Perennial Rye'       },
+      st_aug:   { new: 0,   over: 0,   label: 'St. Augustine (plugs/sod only)' },
+    };
+    const rate = RATES[stype] || RATES.fescue;
+    if (rate.new === 0) return `<div class="tool-result-note" style="color:var(--amber)">${rate.label} is typically installed via plugs or sod — not seed.</div>`;
+    const lbsNew  = area / 1000 * rate.new;
+    const lbsOver = area / 1000 * rate.over;
+    return statBlock([
+      { val: fmt(lbsNew),  lbl: 'lbs — new lawn',   green: true },
+      { val: fmt(lbsOver), lbl: 'lbs — overseeding' },
+    ]) + `<div class="tool-result-note">${rate.label} · ${fmt(area)} sq ft</div>`;
+  }
+
+  // ── Fertilizer ───────────────────────────────────────────────────────────────
+  if (toolId === 'fert') {
+    const { area, coverage } = vals;
+    if (!area || !coverage) return '';
+    const bags     = Math.ceil(area / coverage);
+    const partBag  = (area / coverage) % 1;
+    return statBlock([
+      { val: bags,             lbl: 'bags needed', green: true },
+      { val: fmt(area / coverage), lbl: 'exact bags' },
+      { val: partBag > 0 ? `${fmt(partBag * 100)}%` : '—', lbl: 'partial bag leftover' },
+    ]) + `<div class="tool-result-note">${fmt(area)} sq ft ÷ ${fmt(coverage)} sq ft/bag</div>`;
+  }
+
+  // ── Mow Time ─────────────────────────────────────────────────────────────────
+  if (toolId === 'mow') {
+    const { area, deck, speed } = vals;
+    if (!area || !deck || !speed) return '';
+    const deckFt     = deck / 12;
+    const effWidth   = deckFt * 0.85;           // 15% overlap
+    const linearFt   = area / effWidth;          // total linear feet to cover
+    const timeHrs    = (linearFt / (speed * 5280)) * 1.20; // 20% turn buffer
+    const totalMins  = timeHrs * 60;
+    const h          = Math.floor(totalMins / 60);
+    const m          = Math.round(totalMins % 60);
+    const passes     = Math.ceil(Math.sqrt(area) / effWidth);
+    const miles      = linearFt / 5280;
+    return statBlock([
+      { val: h > 0 ? `${h}h ${m}m` : `${m}m`, lbl: 'est. mow time',  green: true },
+      { val: passes,                            lbl: 'passes'                      },
+      { val: fmt(miles),                        lbl: 'miles walked'                },
+    ]) + `<div class="tool-result-note">15% deck overlap · 20% buffer for turns & trimming</div>`;
+  }
+
+  // ── Job Quote ────────────────────────────────────────────────────────────────
+  if (toolId === 'quote') {
+    const { hours, rate, materials, markup } = vals;
+    if (!hours || !rate) return '';
+    const labor       = hours * rate;
+    const matCharged  = materials * (1 + (markup || 0) / 100);
+    const matProfit   = materials * ((markup || 0) / 100);
+    const total       = labor + matCharged;
+    const grossProfit = labor + matProfit;
+    const margin      = total > 0 ? (grossProfit / total * 100) : 0;
+    return `
+      <div class="tool-quote-breakdown">
+        <div class="tool-quote-row"><span>Labor (${fmt(hours)}h × ${fmtC(rate)}/hr)</span><strong>${fmtC(labor)}</strong></div>
+        ${materials > 0 ? `<div class="tool-quote-row"><span>Materials + ${markup || 0}% markup</span><strong>${fmtC(matCharged)}</strong></div>` : ''}
+        <div class="tool-quote-divider"></div>
+        <div class="tool-quote-row total"><span>Total Quote</span><strong>${fmtC(total)}</strong></div>
+        ${materials > 0 ? `<div class="tool-quote-row profit"><span>Est. gross profit</span><strong>${fmtC(grossProfit)} (${fmt(margin)}%)</strong></div>` : ''}
+      </div>`;
+  }
+
+  // ── Bags vs. Bulk ─────────────────────────────────────────────────────────────
+  if (toolId === 'bagsvbulk') {
+    const { yards, bagprice, bulkprice } = vals;
+    if (!yards) return '';
+    const bags2     = Math.ceil(yards * 13.5);
+    const bags3     = Math.ceil(yards * 9);
+    const costBag2  = bags2  * (bagprice  || 5.99);
+    const costBag3  = bags3  * (bagprice  || 5.99);
+    const costBulk  = yards  * (bulkprice || 35);
+    const minBag    = Math.min(costBag2, costBag3);
+    const bulkWins  = costBulk < minBag;
+    const savings   = Math.abs(minBag - costBulk);
+    return `
+      <div class="tool-quote-breakdown">
+        <div class="tool-quote-row"><span>2 cu ft bags (${bags2} bags)</span><strong>${fmtC(costBag2)}</strong></div>
+        <div class="tool-quote-row"><span>3 cu ft bags (${bags3} bags)</span><strong>${fmtC(costBag3)}</strong></div>
+        <div class="tool-quote-row"><span>Bulk by the yard (${fmt(yards)} yd³)</span><strong>${fmtC(costBulk)}</strong></div>
+        <div class="tool-quote-divider"></div>
+        <div class="tool-quote-row total ${bulkWins ? 'green' : 'amber'}">
+          <span>${bulkWins ? '✓ Bulk is cheaper' : '✓ Bags are cheaper'} — save</span>
+          <strong>${fmtC(savings)}</strong>
+        </div>
+      </div>`;
+  }
+
+  return '';
+}
+
+function renderTools() {
+  const toolCard = ({ id, emoji, title, desc, body }) => `
+    <div class="tool-card" data-tool="${id}">
+      <div class="tool-card-head">
+        <div class="tool-emoji">${emoji}</div>
+        <div class="tool-card-title-wrap">
+          <div class="tool-title">${title}</div>
+          <div class="tool-desc">${desc}</div>
+        </div>
+      </div>
+      <div class="tool-body">
+        ${body}
+        <div class="tool-result" id="result-${id}"></div>
+      </div>
+    </div>`;
+
+  const depthPresets = (vals = ['2','3','4'], dflt = '3') => `
+    <div class="tool-preset-row">
+      ${vals.map(v => `<button class="tool-preset${v === dflt ? ' active' : ''}" data-preset="depth" data-val="${v}">${v}"</button>`).join('')}
+      <input class="tool-input tool-input-xs" type="number" data-field="depth" value="${dflt}" min="0.5" step="0.5" inputmode="decimal" />
+    </div>`;
+
+  const shapePanel = (shape, fields) => `
+    <div class="tool-shape-panel" data-shape="${shape}">${fields}</div>`;
+
+  const field = (label, id, placeholder, unit = '') => `
+    <div class="tool-group">
+      <label class="tool-label">${label}</label>
+      <div class="tool-input-wrap">
+        <input class="tool-input" type="number" data-field="${id}" placeholder="${placeholder}" min="0" inputmode="decimal" />
+        ${unit ? `<span class="tool-input-unit">${unit}</span>` : ''}
+      </div>
+    </div>`;
+
+  const row2 = (...fields) => `<div class="tool-row-2">${fields.join('')}</div>`;
+
+  // ── Material calculators ───────────────────────────────────────────────────
+  const mulch = toolCard({ id: 'mulch', emoji: '🍂', title: 'Mulch Calculator', desc: 'Area + depth → cu yards & bags',
+    body: `
+      ${row2(field('Length', 'length', '20', 'ft'), field('Width', 'width', '10', 'ft'))}
+      <div class="tool-group">
+        <label class="tool-label">Depth</label>
+        ${depthPresets(['2','3','4'], '3')}
+      </div>` });
+
+  const topsoil = toolCard({ id: 'topsoil', emoji: '🌱', title: 'Topsoil / Fill Dirt', desc: 'Area + depth → cubic yards',
+    body: `
+      ${row2(field('Length', 'length', '20', 'ft'), field('Width', 'width', '10', 'ft'))}
+      <div class="tool-group">
+        <label class="tool-label">Depth</label>
+        ${depthPresets(['2','4','6'], '4')}
+      </div>` });
+
+  const gravel = toolCard({ id: 'gravel', emoji: '🪨', title: 'Gravel / Rock', desc: 'Area + depth → cubic yards & tons',
+    body: `
+      ${row2(field('Length', 'length', '20', 'ft'), field('Width', 'width', '10', 'ft'))}
+      <div class="tool-group">
+        <label class="tool-label">Depth</label>
+        ${depthPresets(['2','3','4'], '3')}
+      </div>
+      <div class="tool-group">
+        <label class="tool-label">Stone type</label>
+        <select class="tool-select" data-field="gtype">
+          <option value="gravel">Crushed Gravel (~1.4 t/yd³)</option>
+          <option value="limestone">Crushed Limestone (~1.35 t/yd³)</option>
+          <option value="pea">Pea Gravel (~1.2 t/yd³)</option>
+          <option value="river">River Rock (~1.3 t/yd³)</option>
+        </select>
+      </div>` });
+
+  const sod = toolCard({ id: 'sod', emoji: '🟩', title: 'Sod Calculator', desc: 'Area → pallets & rolls',
+    body: row2(field('Length', 'length', '30', 'ft'), field('Width', 'width', '20', 'ft')) });
+
+  // ── Lawn calculators ────────────────────────────────────────────────────────
+  const area = toolCard({ id: 'area', emoji: '📐', title: 'Lawn Area', desc: 'Rectangle, circle, triangle, or L-shape',
+    body: `
+      <div class="tool-shape-tabs">
+        <button class="tool-shape-tab active" data-shape="rect">Rectangle</button>
+        <button class="tool-shape-tab" data-shape="circle">Circle</button>
+        <button class="tool-shape-tab" data-shape="triangle">Triangle</button>
+        <button class="tool-shape-tab" data-shape="lshape">L-Shape</button>
+      </div>
+      ${shapePanel('rect',     row2(field('Length', 'length', '50', 'ft'), field('Width', 'width', '30', 'ft')))}
+      ${shapePanel('circle',   field('Radius', 'radius', '15', 'ft'))}
+      ${shapePanel('triangle', row2(field('Base', 'base', '40', 'ft'), field('Height', 'height', '25', 'ft')))}
+      ${shapePanel('lshape',   row2(field('Section A length', 'l1', '40', 'ft'), field('Section A width', 'w1', '20', 'ft')) + row2(field('Section B length', 'l2', '20', 'ft'), field('Section B width', 'w2', '15', 'ft')))}
+    ` });
+
+  const seed = toolCard({ id: 'seed', emoji: '🌾', title: 'Grass Seed', desc: 'Area + grass type → pounds needed',
+    body: `
+      ${field('Lawn area', 'area', '5000', 'sq ft')}
+      <div class="tool-group">
+        <label class="tool-label">Grass type</label>
+        <select class="tool-select" data-field="stype">
+          <option value="fescue">Tall Fescue</option>
+          <option value="rye">Perennial Rye</option>
+          <option value="kentucky">Kentucky Bluegrass</option>
+          <option value="bermuda">Bermuda</option>
+          <option value="zoysia">Zoysia</option>
+          <option value="st_aug">St. Augustine</option>
+        </select>
+      </div>` });
+
+  const fert = toolCard({ id: 'fert', emoji: '🧪', title: 'Fertilizer', desc: 'How many bags for your lawn size',
+    body: `
+      ${field('Lawn area', 'area', '5000', 'sq ft')}
+      <div class="tool-group">
+        <label class="tool-label">Bag coverage</label>
+        <div class="tool-preset-row">
+          <button class="tool-preset active" data-preset="coverage" data-val="5000">5,000 sq ft</button>
+          <button class="tool-preset" data-preset="coverage" data-val="10000">10,000 sq ft</button>
+          <button class="tool-preset" data-preset="coverage" data-val="15000">15,000 sq ft</button>
+          <input class="tool-input tool-input-xs" type="number" data-field="coverage" value="5000" min="100" inputmode="decimal" />
+        </div>
+      </div>` });
+
+  const mow = toolCard({ id: 'mow', emoji: '🚜', title: 'Mow Time Estimator', desc: 'Area + mower size → estimated time',
+    body: `
+      ${field('Lawn area', 'area', '8000', 'sq ft')}
+      <div class="tool-group">
+        <label class="tool-label">Mower deck width</label>
+        <div class="tool-preset-row">
+          <button class="tool-preset" data-preset="deck" data-val="21">21"</button>
+          <button class="tool-preset active" data-preset="deck" data-val="42">42"</button>
+          <button class="tool-preset" data-preset="deck" data-val="52">52"</button>
+          <button class="tool-preset" data-preset="deck" data-val="60">60"</button>
+          <input class="tool-input tool-input-xs" type="number" data-field="deck" value="42" min="10" inputmode="decimal" />
+        </div>
+      </div>
+      <div class="tool-group">
+        <label class="tool-label">Ground speed</label>
+        <div class="tool-preset-row">
+          <button class="tool-preset" data-preset="speed" data-val="2.5">2.5 mph</button>
+          <button class="tool-preset active" data-preset="speed" data-val="4">4 mph</button>
+          <button class="tool-preset" data-preset="speed" data-val="6">6 mph</button>
+          <input class="tool-input tool-input-xs" type="number" data-field="speed" value="4" min="0.5" step="0.5" inputmode="decimal" />
+        </div>
+      </div>` });
+
+  // ── Business calculators ────────────────────────────────────────────────────
+  const quote = toolCard({ id: 'quote', emoji: '💰', title: 'Job Quote Builder', desc: 'Labor + materials → total quote',
+    body: `
+      ${row2(field('Hours on job', 'hours', '2', 'hrs'), field('Your hourly rate', 'rate', '75', '/hr'))}
+      ${row2(field('Material cost', 'materials', '0', '$'), field('Markup %', 'markup', '20', '%'))}` });
+
+  const bagsvbulk = toolCard({ id: 'bagsvbulk', emoji: '⚖️', title: 'Bags vs. Bulk', desc: 'Compare bagged vs. bulk delivery cost',
+    body: `
+      ${field('Mulch needed', 'yards', '3', 'cu yds')}
+      ${row2(field('Price per bag', 'bagprice', '5.99', '$'), field('Bulk price/yard', 'bulkprice', '35', '$'))}` });
+
+  return `
+    <div class="tools-page">
+      <div class="tools-page-header">
+        <div>
+          <h1 class="tools-page-title">Tools</h1>
+          <p class="tools-page-sub">Calculators & estimators for the field</p>
+        </div>
+      </div>
+
+      <div class="tools-cat-label"><span class="tools-cat-icon">🧱</span> Material Calculators</div>
+      <div class="tools-grid">
+        ${mulch}
+        ${topsoil}
+        ${gravel}
+        ${sod}
+      </div>
+
+      <div class="tools-cat-label"><span class="tools-cat-icon">🌿</span> Lawn Calculators</div>
+      <div class="tools-grid">
+        ${area}
+        ${seed}
+        ${fert}
+        ${mow}
+      </div>
+
+      <div class="tools-cat-label"><span class="tools-cat-icon">💼</span> Business Calculators</div>
+      <div class="tools-grid">
+        ${quote}
+        ${bagsvbulk}
+      </div>
+
+      <div class="spacer"></div>
+    </div>`;
+}
+
 // ===== EXPENSES VIEW =====
 function renderExpenses() {
+  const tab = state.expensesTab || 'cashflow';
+  if (tab === 'debt') return renderDebtView();
+
   const cd     = computeExpensesData();
   const period = state.expensesPeriod || '3M';
   const PERIODS = ['1M', '3M', '6M', 'YTD', '1Y'];
@@ -1902,7 +2969,7 @@ function renderExpenses() {
   const expListHtml = cd.donutData.length === 0
     ? `<p class="cf-empty">No expenses this period.</p>`
     : cd.donutData.map((d, i) => `
-        <div class="cf-exp-row${i === cd.donutData.length - 1 ? ' cf-exp-row--last' : ''}">
+        <div class="cf-exp-row${i === cd.donutData.length - 1 ? ' cf-exp-row--last' : ''}" data-drilldown-cat="${d.catId}" style="cursor:pointer" title="Click for ${escHtml(d.cat?.label || d.catId)} breakdown">
           <span class="cf-exp-icon" style="background:${d.color}1a;color:${d.color}">${d.cat?.emoji || '📦'}</span>
           <div class="cf-exp-info">
             <span class="cf-exp-name">${escHtml(d.cat?.label || d.catId)}</span>
@@ -1910,6 +2977,7 @@ function renderExpenses() {
           </div>
           <span class="cf-exp-amount">${fmtC(d.total)}</span>
           <span class="cf-exp-pct">${d.pct}%</span>
+          <svg class="cf-exp-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </div>`).join('');
 
   // Transactions — filter
@@ -1926,7 +2994,7 @@ function renderExpenses() {
   const txHtml = filteredTx.length === 0
     ? `<tr><td colspan="5" class="cf-td-empty">No ${txFilter === 'all' ? '' : txFilter + ' '}transactions this period.</td></tr>`
     : filteredTx.slice(0, 60).map(tx => `
-        <tr>
+        <tr class="cf-tx-row-deletable">
           <td class="cf-td-date">${formatDate(tx.date)}</td>
           <td class="cf-td-desc">${escHtml(tx.description)}</td>
           <td class="cf-td-cat">${escHtml(tx.category)}</td>
@@ -1934,6 +3002,11 @@ function renderExpenses() {
             ${tx.isInflow ? '+' : '−'}${fmtC(tx.amount).replace(/^−/, '')}
           </td>
           <td>${statusBadge(tx.status)}</td>
+          <td class="cf-td-action">
+            ${tx.id ? `<button class="cf-tx-del-btn" data-delete-tx="${tx.id}" data-tx-source="${tx.source}" data-tx-client="${tx.clientId || ''}" title="Delete transaction">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            </button>` : ''}
+          </td>
         </tr>`).join('');
 
   return `
@@ -1946,6 +3019,10 @@ function renderExpenses() {
           <p class="cf-subtitle">Financial overview — all accounts</p>
         </div>
         <div class="cf-header-right">
+          <div class="cf-tab-group">
+            <button class="cf-tab-btn active" data-exp-tab="cashflow">Cash Flow</button>
+            <button class="cf-tab-btn" data-exp-tab="debt">Debt</button>
+          </div>
           <div class="cf-period-group">
             ${PERIODS.map(p => `<button class="cf-period-btn${period === p ? ' active' : ''}" data-cf-period="${p}">${p}</button>`).join('')}
           </div>
@@ -2045,6 +3122,7 @@ function renderExpenses() {
                 <th>Category</th>
                 <th style="text-align:right">Amount</th>
                 <th>Status</th>
+                <th style="width:40px"></th>
               </tr>
             </thead>
             <tbody>${txHtml}</tbody>
@@ -2330,12 +3408,27 @@ function renderDashDayModal({ date }) {
     : dayScheduled.map(sj => {
         const client = data.clients.find(c => c.id === sj.clientId);
         if (!client) return '';
-        const color  = avatarColor(client.name);
-        const isDone = sj.status === 'done';
+        const color    = avatarColor(client.name);
+        const isDone   = sj.status === 'done';
+        const notes    = client.clientNotes || [];
+        const hasPinned = notes.some(n => n.pinned);
+        const hasNotes  = notes.length > 0;
+        const notesBadge = hasNotes
+          ? `<span class="cn-job-badge ${hasPinned ? 'cn-job-badge-pin' : ''}" title="${hasPinned ? 'Has pinned note' : 'Has notes'}">
+               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+               ${notes.length}
+             </span>`
+          : '';
+        const svcMeta = sj.serviceType
+          ? `<span class="sched-job-svc">${serviceEmoji(sj.serviceType)} ${serviceLabel(sj.serviceType)}${sj.estimatedPrice ? ' · ~' + formatCurrency(sj.estimatedPrice) : ''}</span>`
+          : (sj.description ? `<span class="sched-job-svc">${escHtml(sj.description)}</span>` : '');
         return `
-          <div class="sched-job-row ${isDone ? 'sched-done' : ''}">
+          <div class="sched-job-row ${isDone ? 'sched-done' : ''} ${hasNotes ? 'sched-job-has-notes' : ''}" data-nav-client="${client.id}">
             <div class="sched-avatar" style="background:${color}">${initials(client.name)}</div>
-            <div class="sched-job-name">${escHtml(client.name)}</div>
+            <div class="sched-job-info">
+              <div class="sched-job-name">${escHtml(client.name)}${notesBadge}</div>
+              ${svcMeta}
+            </div>
             <div class="sched-job-actions">
               ${isDone
                 ? `<span class="sched-status-badge">Done</span>`
@@ -2364,20 +3457,45 @@ function renderDashDayModal({ date }) {
         </div>`).join('')}
     </div>`;
 
-  // ── Client picker list (active clients only)
-  const pickableClients = data.clients.filter(c => (c.status || 'active') === 'active');
-  const clientPickerRows = pickableClients.map(c => {
-    const color = avatarColor(c.name);
-    const already = alreadyIds.has(c.id);
-    return `
-      <div class="sched-pick-row ${already ? 'sched-pick-already' : ''}" data-pick-client="${c.id}">
-        <div class="sched-avatar sched-avatar-sm" style="background:${color}">${initials(c.name)}</div>
-        <div class="sched-pick-name">${escHtml(c.name)}</div>
-        <div class="sched-pick-check" id="sched-check-${c.id}">
-          ${already ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;color:var(--green-mid)"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
-        </div>
-      </div>`;
-  }).join('');
+  // ── Client picker — all clients, grouped: Active → On-Call → Paused → Inactive → One-Off
+  const clientGroup = c => {
+    if (c.type === 'one-time') return 'one-off';
+    return c.status || 'active';
+  };
+  const GROUP_ORDER  = { active: 0, 'on-call': 1, paused: 2, inactive: 3, 'one-off': 4 };
+  const GROUP_LABELS = { active: 'Active', 'on-call': 'On-Call', paused: 'Paused', inactive: 'Inactive', 'one-off': 'One-Off' };
+
+  const sortedClients = [...data.clients].sort((a, b) => {
+    const ao = GROUP_ORDER[clientGroup(a)] ?? 5;
+    const bo = GROUP_ORDER[clientGroup(b)] ?? 5;
+    if (ao !== bo) return ao - bo;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  let lastGroup = null;
+  const clientPickerRows = sortedClients.length === 0
+    ? `<div class="sched-pick-empty">No clients yet.</div>`
+    : sortedClients.map(c => {
+        const grp     = clientGroup(c);
+        const divider = grp !== lastGroup
+          ? (() => { lastGroup = grp; return `<div class="sched-pick-group">${GROUP_LABELS[grp] || grp}</div>`; })()
+          : '';
+        const color   = avatarColor(c.name);
+        const already = alreadyIds.has(c.id);
+        const isDim   = grp === 'paused' || grp === 'inactive';
+        return `${divider}
+          <div class="sched-pick-row ${already ? 'sched-pick-already' : ''} ${isDim ? 'sched-pick-dim' : ''}" data-pick-client="${c.id}">
+            <div class="sched-avatar sched-avatar-sm" style="background:${color}">${initials(c.name)}</div>
+            <div class="sched-pick-info">
+              <span class="sched-pick-name">${escHtml(c.name)}</span>
+            </div>
+            <div class="sched-pick-check" id="sched-check-${c.id}">
+              ${already ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;color:var(--green-mid)"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+
+  const excludedHint = '';
 
   return `
     <div class="sheet-header">
@@ -2411,9 +3529,10 @@ function renderDashDayModal({ date }) {
       </div>
 
       <div class="sched-picker-panel hidden" id="sched-picker-panel">
-        <input class="form-input" type="search" id="sched-picker-search" placeholder="Search clients..." autocomplete="off" />
+        <input class="form-input" type="search" id="sched-picker-search" placeholder="Search active clients..." autocomplete="off" />
         <div class="sched-pick-list" id="sched-pick-list">
           ${clientPickerRows}
+          ${excludedHint}
         </div>
         <div class="sched-picker-footer">
           <button class="btn btn-primary full-width" id="sched-confirm-add" data-date="${date}">
@@ -2494,83 +3613,151 @@ function renderStatDetailModal(type) {
   }
 
   if (type === 'ytd') {
-    // All paid payments since Jan 1, grouped by client
-    const byClient = {};
+    // Build month-by-month buckets from Jan to current month
+    const curMonth = now.getMonth(); // 0-indexed
+    const year = now.getFullYear();
+    const months = [];
+    for (let m = 0; m <= curMonth; m++) {
+      const key = `${year}-${String(m+1).padStart(2,'0')}`;
+      months.push({ key, label: new Date(year, m, 1).toLocaleDateString('en-US', { month: 'long' }), collected: 0, unpaid: 0, count: 0 });
+    }
+    const monthMap = Object.fromEntries(months.map(m => [m.key, m]));
+
     for (const c of data.clients) {
       for (const p of (c.payments||[])) {
-        if (p.status==='paid' && p.date >= yearStart) {
-          if (!byClient[c.id]) byClient[c.id] = { client: c, total: 0, count: 0 };
-          byClient[c.id].total += p.amount;
-          byClient[c.id].count++;
+        const mk = (p.date||'').slice(0,7);
+        if (monthMap[mk]) {
+          if (p.status === 'paid')   { monthMap[mk].collected += p.amount; monthMap[mk].count++; }
+          if (p.status === 'unpaid') { monthMap[mk].unpaid    += p.amount; }
         }
       }
     }
-    const rows = Object.values(byClient).sort((a,b)=>b.total-a.total);
-    const grandTotal = rows.reduce((s,r)=>s+r.total,0);
 
-    const listHTML = rows.length === 0
-      ? `<div class="stat-modal-empty">No revenue recorded yet this year.</div>`
-      : rows.map(r=>`
-          <div class="stat-modal-row" data-nav-client="${r.client.id}">
-            <div class="sched-avatar" style="background:${avatarColor(r.client.name)}">${initials(r.client.name)}</div>
-            <div class="stat-modal-info">
-              <div class="stat-modal-name">${escHtml(r.client.name)}</div>
-              <div class="stat-modal-sub">${r.count} payment${r.count!==1?'s':''}</div>
-            </div>
-            <div class="stat-modal-amount success">${formatCurrency(r.total)}</div>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--text-muted);flex-shrink:0"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>`).join('');
+    const grandTotal   = months.reduce((s,m)=>s+m.collected,0);
+    const grandUnpaid  = months.reduce((s,m)=>s+m.unpaid,0);
+    const maxCollected = Math.max(...months.map(m=>m.collected), 1);
+
+    const monthRows = months.slice().reverse().map(m => {
+      const barPct = Math.round((m.collected / maxCollected) * 100);
+      return `
+        <div class="ytd-month-row">
+          <div class="ytd-month-label">${m.label}</div>
+          <div class="ytd-month-bar-wrap">
+            <div class="ytd-month-bar" style="width:${barPct}%"></div>
+          </div>
+          <div class="ytd-month-right">
+            <div class="ytd-month-collected">${m.collected > 0 ? formatCurrency(m.collected) : '—'}</div>
+            ${m.unpaid > 0 ? `<div class="ytd-month-unpaid">${formatCurrency(m.unpaid)} unpaid</div>` : ''}
+            ${m.count > 0 ? `<div class="ytd-month-count">${m.count} payment${m.count!==1?'s':''}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
 
     return `
       <div class="sheet-header">
         <div>
           <h2>YTD Revenue</h2>
-          <div style="font-size:13px;color:var(--text-muted)">${formatCurrency(grandTotal)} collected Jan – ${now.toLocaleDateString('en-US',{month:'short'})}</div>
+          <div style="font-size:13px;color:var(--text-muted)">${formatCurrency(grandTotal)} collected · ${months.length} month${months.length!==1?'s':''}</div>
         </div>
         <button class="sheet-close" id="sheet-close-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
-      <div class="sched-modal-body">${listHTML}</div>`;
+      <div class="sched-modal-body">
+        ${monthRows}
+        <div class="ytd-totals-row">
+          <span>Year total</span>
+          <span class="ytd-totals-collected">${formatCurrency(grandTotal)}</span>
+        </div>
+        ${grandUnpaid > 0 ? `<div class="ytd-totals-row" style="border-top:none;padding-top:0;color:var(--danger)"><span>Outstanding</span><span>${formatCurrency(grandUnpaid)}</span></div>` : ''}
+      </div>`;
   }
 
   if (type === 'this-month') {
     const monthName = now.toLocaleDateString('en-US',{month:'long'});
-    const rows = [];
+    const curMonthKey = monthStart.slice(0,7);
+
+    // ── Collected this month ──
+    let paidTotal = 0, unpaidTotal = 0;
     for (const c of data.clients) {
       for (const p of (c.payments||[])) {
-        if ((p.date||'').slice(0,7) === monthStart.slice(0,7)) {
-          rows.push({ client: c, payment: p });
+        if ((p.date||'').slice(0,7) === curMonthKey) {
+          if (p.status==='paid')   paidTotal   += p.amount;
+          if (p.status==='unpaid') unpaidTotal += p.amount;
         }
       }
     }
-    rows.sort((a,b)=>b.payment.date.localeCompare(a.payment.date));
-    const paidTotal   = rows.filter(r=>r.payment.status==='paid').reduce((s,r)=>s+r.payment.amount,0);
-    const unpaidTotal = rows.filter(r=>r.payment.status==='unpaid').reduce((s,r)=>s+r.payment.amount,0);
 
-    const listHTML = rows.length === 0
-      ? `<div class="stat-modal-empty">No payments recorded this month.</div>`
-      : rows.map(r=>`
-          <div class="stat-modal-row" data-nav-client="${r.client.id}">
-            <div class="sched-avatar" style="background:${avatarColor(r.client.name)}">${initials(r.client.name)}</div>
-            <div class="stat-modal-info">
-              <div class="stat-modal-name">${escHtml(r.client.name)}</div>
-              <div class="stat-modal-sub">${escHtml(r.payment.description||'Payment')} · ${formatDate(r.payment.date)}</div>
-            </div>
-            <div style="text-align:right;flex-shrink:0">
-              <div class="stat-modal-amount ${r.payment.status==='paid'?'success':'danger'}">${formatCurrency(r.payment.amount)}</div>
-              <div style="font-size:11px;color:var(--text-muted)">${r.payment.status==='paid'?'Paid':'Unpaid'}</div>
-            </div>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--text-muted);flex-shrink:0"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>`).join('');
+    // ── Projected breakdown per client/service ──
+    const FREQ_DISPLAY_MULT = { weekly: 4, biweekly: 2, monthly: 1 };
+    const FREQ_DISPLAY_LABEL = { weekly: '× 4 weeks', biweekly: '× 2 visits', monthly: '× 1 month' };
+    const projLines = [];
+    let projTotal = 0;
+
+    const activeClients = data.clients.filter(c => (c.status||'active') === 'active' && c.type !== 'one-time');
+    for (const c of activeClients) {
+      for (const svc of (c.services||[])) {
+        const mult = FREQ_MULTIPLIERS[svc.frequency];
+        if (!mult) continue;
+        const monthly = svc.price * mult;
+        projTotal += monthly;
+        projLines.push({ client: c, svc, monthly });
+      }
+    }
+    projLines.sort((a,b) => b.monthly - a.monthly);
+
+    const pct = projTotal > 0 ? Math.min(Math.round((paidTotal/projTotal)*100),100) : 0;
+    const remaining = Math.max(projTotal - paidTotal, 0);
+
+    const projHTML = projLines.length === 0
+      ? `<div class="stat-modal-empty">No active recurring services.</div>`
+      : projLines.map(({client: c, svc, monthly}) => {
+          const mult = FREQ_MULTIPLIERS[svc.frequency];
+          const dispMult = FREQ_DISPLAY_MULT[svc.frequency] || mult.toFixed(2);
+          const dispLabel = FREQ_DISPLAY_LABEL[svc.frequency] || `× ${mult.toFixed(2)}`;
+          const ic = serviceIconColors(svc.type);
+          return `
+            <div class="proj-line" data-nav-client="${c.id}">
+              <span class="proj-line-icon" style="background:${ic.bg};color:${ic.color}">${serviceIconSvg(svc.type)}</span>
+              <div class="proj-line-info">
+                <span class="proj-line-client">${escHtml(c.name)}</span>
+                <span class="proj-line-svc">${serviceLabel(svc.type)} · ${FREQ_LABELS[svc.frequency]||svc.frequency}</span>
+              </div>
+              <div class="proj-line-math">
+                <span class="proj-line-formula">${formatCurrency(svc.price)} ${dispLabel}</span>
+                <span class="proj-line-total">${formatCurrency(monthly)}</span>
+              </div>
+            </div>`;
+        }).join('');
 
     return `
       <div class="sheet-header">
         <div>
           <h2>${monthName}</h2>
-          <div style="font-size:13px;color:var(--text-muted)">${formatCurrency(paidTotal)} collected · ${formatCurrency(unpaidTotal)} unpaid</div>
+          <div style="font-size:13px;color:var(--text-muted)">${formatCurrency(paidTotal)} collected of ${formatCurrency(projTotal)} projected</div>
         </div>
         <button class="sheet-close" id="sheet-close-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
-      <div class="sched-modal-body">${listHTML}</div>`;
+      <div class="sched-modal-body">
+        <div class="proj-progress-wrap">
+          <div class="proj-progress-bar-track">
+            <div class="proj-progress-bar-fill" style="width:${pct}%"></div>
+          </div>
+          <div class="proj-progress-labels">
+            <span class="proj-progress-pct">${pct}% collected</span>
+            <span class="proj-progress-remain">${formatCurrency(remaining)} remaining</span>
+          </div>
+        </div>
+        <div class="proj-section-label">Projected breakdown</div>
+        ${projHTML}
+        <div class="ytd-totals-row">
+          <span>Monthly projected</span>
+          <span class="ytd-totals-collected">${formatCurrency(projTotal)}</span>
+        </div>
+        ${unpaidTotal > 0 ? `
+        <div class="ytd-totals-row" style="border-top:none;padding-top:2px">
+          <span style="color:var(--danger)">Invoiced / unpaid</span>
+          <span style="color:var(--danger)">${formatCurrency(unpaidTotal)}</span>
+        </div>` : ''}
+      </div>`;
   }
 
   return '';
@@ -2654,6 +3841,264 @@ function renderLogTimeModal(data = {}) {
 }
 
 // ===== MODAL RENDERERS =====
+// ===== EXPENSE CATEGORY DRILLDOWN MODAL =====
+// ===== SCHEDULE SERVICE SELECT MODAL =====
+function renderSchedServiceSelect({ clients, date }) {
+  const dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  });
+
+  const clientForms = clients.map(c => {
+    const color = avatarColor(c.name);
+
+    // Pull all services from history (active first, then by most recent)
+    const allSvcs = [...(c.services || [])].sort((a, b) => {
+      if (a.active && !b.active) return -1;
+      if (!a.active && b.active) return 1;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    });
+    const hasHistory = allSvcs.length > 0;
+    // Auto-select the single service, or the first active one
+    const autoSvc = allSvcs.length === 1 ? allSvcs[0]
+      : (allSvcs.find(s => s.active) || null);
+
+    // History cards
+    const historyHtml = allSvcs.map(svc => {
+      const ic = serviceIconColors(svc.type);
+      const isAuto = autoSvc && svc.id === autoSvc.id;
+      return `<button class="sss-hist-card ${isAuto ? 'active' : ''}"
+          data-hist-svc="${svc.id}"
+          data-hist-type="${svc.type}"
+          data-hist-price="${svc.price || ''}"
+          data-hist-notes="${escHtml(svc.notes || '')}"
+          data-sss-client-id="${c.id}"
+          ${isAuto ? `style="border-color:${ic.color};background:${ic.bg}"` : ''}>
+        <span class="sss-hist-icon" style="color:${ic.color};background:${ic.bg}">${serviceIconSvg(svc.type)}</span>
+        <span class="sss-hist-info">
+          <span class="sss-hist-label">${serviceLabel(svc.type)}</span>
+          ${svc.notes ? `<span class="sss-hist-note">${escHtml(svc.notes)}</span>` : ''}
+        </span>
+        ${svc.price ? `<span class="sss-hist-price">${formatCurrency(svc.price)}</span>` : ''}
+        <span class="sss-hist-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </span>
+      </button>`;
+    }).join('');
+
+    // New-service pills (shown when "different service" is tapped, or always if no history)
+    const pillsHtml = SERVICE_TYPES.map(s => {
+      const ic = serviceIconColors(s.id);
+      return `<button class="sss-pill" data-sss-type="${s.id}" data-sss-client-id="${c.id}">
+        <span class="sss-pill-icon" style="color:${ic.color}">${serviceIconSvg(s.id)}</span>
+        ${s.label}
+      </button>`;
+    }).join('');
+
+    const newFormHidden = hasHistory ? 'style="display:none"' : '';
+
+    return `
+      <div class="sss-block" data-sss-client="${c.id}">
+        <div class="sss-block-head">
+          <div class="client-avatar" style="background:${color};width:30px;height:30px;font-size:11px;flex-shrink:0">${initials(c.name)}</div>
+          <span class="sss-block-name">${escHtml(c.name)}</span>
+        </div>
+        ${hasHistory ? `<div class="sss-history">${historyHtml}</div>` : ''}
+        ${hasHistory ? `
+          <button class="sss-diff-btn" data-sss-diff="${c.id}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Use a different service
+          </button>` : ''}
+        <div class="sss-new-form" id="sss-new-form-${c.id}" ${newFormHidden}>
+          <div class="sss-pills">${pillsHtml}</div>
+        </div>
+        <input type="hidden" class="sss-type-val" id="sss-type-${c.id}" value="${autoSvc ? autoSvc.type : ''}" />
+        <div class="sss-inputs">
+          <input class="form-input" id="sss-desc-${c.id}" type="text" placeholder="Notes (optional)"
+            style="flex:2;min-width:0"
+            value="${autoSvc && autoSvc.notes ? escHtml(autoSvc.notes) : ''}" />
+          <div class="form-prefix-wrap" style="flex:1;min-width:90px">
+            <span class="form-prefix">$</span>
+            <input class="form-input" id="sss-price-${c.id}" type="number" placeholder="Est. price"
+              min="0" step="1" inputmode="decimal"
+              value="${autoSvc && autoSvc.price ? autoSvc.price : ''}" />
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="ef-wrap">
+      <div class="ef-head">
+        <div>
+          <div class="ef-title">What's the job?</div>
+          <div class="ef-subtitle">${dateLabel}</div>
+        </div>
+        <button class="ef-close" id="sheet-close-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="sss-body">${clientForms}</div>
+      <div class="ef-footer">
+        <button class="btn btn-primary btn-full" id="sss-confirm-btn" data-date="${date}">
+          Schedule ${clients.length} Job${clients.length !== 1 ? 's' : ''}
+        </button>
+      </div>
+    </div>`;
+}
+
+// ===== QUICK CLIENT PICKER (for "Log payment" speed dial) =====
+function renderQuickClientPay(searchQ = '') {
+  const data    = getData();
+  const clients = (data.clients || []).filter(c => c.type !== 'archived');
+  const q       = searchQ.toLowerCase();
+  const filtered = q
+    ? clients.filter(c => c.name.toLowerCase().includes(q))
+    : clients;
+
+  const rows = filtered.length === 0
+    ? `<div class="qcp-empty">${q ? 'No clients match.' : 'No clients yet.'}</div>`
+    : filtered.map(c => {
+        const unpaid = (c.payments || []).filter(p => p.status === 'unpaid').reduce((s, p) => s + p.amount, 0);
+        const color  = avatarColor(c.name);
+        return `
+          <div class="qcp-row" data-qcp-client="${c.id}">
+            <div class="client-avatar" style="background:${color};width:34px;height:34px;font-size:12px;flex-shrink:0">${initials(c.name)}</div>
+            <div class="qcp-info">
+              <span class="qcp-name">${escHtml(c.name)}</span>
+              ${unpaid > 0 ? `<span class="qcp-unpaid">${formatCurrency(unpaid)} unpaid</span>` : '<span class="qcp-ok">All clear</span>'}
+            </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--text-muted);flex-shrink:0"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>`;
+      }).join('');
+
+  return `
+    <div class="ef-wrap">
+      <div class="ef-head">
+        <div>
+          <div class="ef-title">Log Payment</div>
+          <div class="ef-subtitle">Select a client</div>
+        </div>
+        <button class="ef-close" id="sheet-close-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div style="padding:12px 16px 0">
+        <input class="form-input" id="qcp-search" type="search" placeholder="Search clients…" value="${escHtml(searchQ)}" autocomplete="off" style="font-size:14px" />
+      </div>
+      <div class="qcp-list">${rows}</div>
+    </div>`;
+}
+
+function renderExpenseCatModal(catId, period) {
+  const dd      = computeCatDrilldown(catId, period);
+  const cat     = dd.cat || { label: catId, emoji: '📦' };
+  const color   = EXPENSE_CAT_COLORS[catId] || '#94a3b8';
+  const PERIODS = ['1M', '3M', '6M', 'YTD', '1Y'];
+
+  const fmtC = v => new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+  }).format(v);
+
+  // Projection note
+  const projNote = dd.avgWeek > 0
+    ? `At this rate, you're on track to spend <strong>${fmtC(dd.projAnnual)}</strong> on ${escHtml(cat.label)} this year (~${fmtC(dd.avgWeek)}/wk).`
+    : `No ${escHtml(cat.label)} spend recorded this period.`;
+
+  // Monthly bar chart
+  const barHtml = dd.monthlyTotals.map(m => {
+    const pct  = dd.maxMonthly > 0 ? Math.round((m.total / dd.maxMonthly) * 100) : 0;
+    const show = m.total > 0;
+    return `
+      <div class="cd-bar-col">
+        ${show ? `<span class="cd-bar-label">${fmtC(m.total).replace('$', '$')}</span>` : '<span class="cd-bar-label" style="opacity:0">—</span>'}
+        <div class="cd-bar-track">
+          <div class="cd-bar-fill" style="height:${pct}%;background:${color}"></div>
+        </div>
+        <span class="cd-bar-mo">${escHtml(m.label)}</span>
+      </div>`;
+  }).join('');
+
+  // Transaction rows
+  const txRows = dd.transactions.length === 0
+    ? `<div class="cd-tx-empty">No transactions this period.</div>`
+    : dd.transactions.map(e => {
+        const desc = e.description || cat.label;
+        const dateStr = e.date ? new Date(e.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+        return `
+          <div class="cd-tx-row">
+            <div class="cd-tx-left">
+              <span class="cd-tx-desc">${escHtml(desc)}</span>
+              <span class="cd-tx-date">${dateStr}</span>
+            </div>
+            <span class="cd-tx-amount">−${fmtC(e.amount)}</span>
+            ${e.id ? `<button class="cd-tx-del-btn" data-delete-tx="${e.id}" data-tx-source="expense" data-tx-client="" title="Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            </button>` : ''}
+          </div>`;
+      }).join('');
+
+  return `
+    <div class="cd-wrap">
+
+      <!-- Header -->
+      <div class="cd-head">
+        <div class="cd-head-left">
+          <span class="cd-cat-icon" style="background:${color}1a;color:${color}">${cat.emoji}</span>
+          <div>
+            <div class="cd-cat-name">${escHtml(cat.label)}</div>
+            <div class="cd-cat-sub">Category breakdown</div>
+          </div>
+        </div>
+        <button class="cd-close" id="sheet-close-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Period tabs -->
+      <div class="cd-period-row">
+        ${PERIODS.map(p => `<button class="cd-period-btn${period === p ? ' active' : ''}" data-cat-period="${p}" style="${period === p ? `color:${color};border-color:${color}30;background:${color}0d` : ''}">${p}</button>`).join('')}
+      </div>
+
+      <div class="cd-body">
+
+        <!-- Stat cards -->
+        <div class="cd-stats-grid">
+          <div class="cd-stat">
+            <span class="cd-stat-label">Total spent</span>
+            <span class="cd-stat-value" style="color:${color}">${fmtC(dd.total)}</span>
+          </div>
+          <div class="cd-stat">
+            <span class="cd-stat-label">Avg / week</span>
+            <span class="cd-stat-value">${fmtC(dd.avgWeek)}</span>
+          </div>
+          <div class="cd-stat">
+            <span class="cd-stat-label">Avg / month</span>
+            <span class="cd-stat-value">${fmtC(dd.avgMonth)}</span>
+          </div>
+          <div class="cd-stat">
+            <span class="cd-stat-label">Proj. annual</span>
+            <span class="cd-stat-value">${fmtC(dd.projAnnual)}</span>
+          </div>
+        </div>
+
+        <!-- Projection note -->
+        <div class="cd-proj-note">${projNote}</div>
+
+        <!-- Monthly bar chart -->
+        ${dd.monthlyTotals.length > 1 ? `
+        <div class="cd-section-title">Monthly spend</div>
+        <div class="cd-bars">${barHtml}</div>` : ''}
+
+        <!-- Transactions -->
+        <div class="cd-section-title">${dd.transactions.length} transaction${dd.transactions.length === 1 ? '' : 's'} this period</div>
+        <div class="cd-tx-list">${txRows}</div>
+
+      </div>
+    </div>`;
+}
+
 function renderModal() {
   if (!state.modal) return;
   const { type, data } = state.modal;
@@ -2681,6 +4126,14 @@ function renderModal() {
     el.innerHTML = renderLogTimeModal(data);
   } else if (type === 'expense-form') {
     el.innerHTML = renderExpenseFormPanel(data);
+  } else if (type === 'expense-cat-detail') {
+    el.innerHTML = renderExpenseCatModal(data.catId, state.catDrilldownPeriod);
+  } else if (type === 'quick-client-pay') {
+    el.innerHTML = renderQuickClientPay(data.searchQ || '');
+  } else if (type === 'sched-service-select') {
+    el.innerHTML = renderSchedServiceSelect(data);
+  } else if (type === 'debt-form') {
+    el.innerHTML = renderDebtForm(data);
   }
   bindModalEvents();
 }
@@ -2730,8 +4183,13 @@ function renderClientForm(client = {}) {
       </div>
       <div class="form-group">
         <label class="form-label">Service Type *</label>
-        <div class="pill-select" id="new-svc-type-select">
-          ${SERVICE_TYPES.map(s => `<button class="pill-option" data-new-svc-type="${s.id}">${s.label}</button>`).join('')}
+        <div class="pill-select svc-type-select" id="new-svc-type-select">
+          ${SERVICE_TYPES.map(s => {
+            const ic = serviceIconColors(s.id);
+            return `<button class="pill-option svc-type-pill" data-new-svc-type="${s.id}">
+              <span class="svc-pill-icon" style="color:${ic.color}">${serviceIconSvg(s.id)}</span>${s.label}
+            </button>`;
+          }).join('')}
         </div>
         <input type="hidden" id="f-new-svc-type" value="" />
       </div>
@@ -2768,10 +4226,15 @@ function renderServiceForm(data = {}) {
     <div class="form-body">
       <div class="form-group">
         <label class="form-label">Service Type *</label>
-        <div class="pill-select" id="svc-type-select">
-          ${SERVICE_TYPES.map(s => `
-            <button class="pill-option ${data.type === s.id ? 'selected' : ''}" data-pill-type="${s.id}">${s.label}</button>
-          `).join('')}
+        <div class="pill-select svc-type-select" id="svc-type-select">
+          ${SERVICE_TYPES.map(s => {
+            const ic = serviceIconColors(s.id);
+            const sel = data.type === s.id;
+            return `<button class="pill-option svc-type-pill ${sel ? 'selected' : ''}" data-pill-type="${s.id}"
+              style="${sel ? `background:${ic.bg};border-color:${ic.color};color:${ic.color}` : ''}">
+              <span class="svc-pill-icon" style="color:${ic.color}">${serviceIconSvg(s.id)}</span>${s.label}
+            </button>`;
+          }).join('')}
         </div>
         <input type="hidden" id="f-svc-type" value="${data.type || ''}" />
       </div>
@@ -3246,6 +4709,57 @@ function bindContentEvents() {
     });
   });
 
+  // Client notes — add
+  content.querySelectorAll('[data-cn-add]').forEach(btn => {
+    const clientId = btn.dataset.cnAdd;
+    const textarea = document.getElementById(`cn-input-${clientId}`);
+    const doAdd = () => {
+      const text = textarea?.value.trim();
+      if (!text) return;
+      const d = getData();
+      const client = d.clients.find(c => c.id === clientId);
+      if (!client) return;
+      if (!client.clientNotes) client.clientNotes = [];
+      client.clientNotes.push({ id: generateId(), text, pinned: false, createdAt: new Date().toISOString() });
+      saveData(d);
+      render();
+      showToast('Note added');
+    };
+    btn.addEventListener('click', doAdd);
+    textarea?.addEventListener('keydown', e => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); doAdd(); }
+    });
+  });
+
+  // Client notes — pin/unpin
+  content.querySelectorAll('[data-cn-pin]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = getData();
+      const client = d.clients.find(c => c.id === btn.dataset.clientId);
+      if (!client) return;
+      const note = (client.clientNotes || []).find(n => n.id === btn.dataset.cnPin);
+      if (!note) return;
+      note.pinned = !note.pinned;
+      saveData(d);
+      render();
+      showToast(note.pinned ? 'Note pinned' : 'Note unpinned');
+    });
+  });
+
+  // Client notes — delete
+  content.querySelectorAll('[data-cn-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      captureUndo();
+      const d = getData();
+      const client = d.clients.find(c => c.id === btn.dataset.clientId);
+      if (!client) return;
+      client.clientNotes = (client.clientNotes || []).filter(n => n.id !== btn.dataset.cnDel);
+      saveData(d);
+      render();
+      showToast('Note deleted', true);
+    });
+  });
+
   // Dashboard stat cards — click to drill down
   content.querySelectorAll('[data-stat-card]').forEach(card => {
     card.addEventListener('click', () => {
@@ -3341,6 +4855,38 @@ function bindContentEvents() {
   // ===== EXPENSE EVENTS =====
 
   // Period selector buttons (1M / 3M / 6M / YTD / 1Y)
+  // Expenses / Debt tab toggle
+  content.querySelectorAll('[data-exp-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.expensesTab = btn.dataset.expTab;
+      render();
+    });
+  });
+
+  // Add debt button
+  content.querySelector('#debt-add-btn')?.addEventListener('click', () => {
+    openModal('debt-form', {});
+  });
+
+  // Edit debt
+  content.querySelectorAll('[data-debt-edit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = getData();
+      const debt = (d.debts || []).find(x => x.id === btn.dataset.debtEdit) || {};
+      openModal('debt-form', debt);
+    });
+  });
+
+  // Delete debt
+  content.querySelectorAll('[data-debt-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      captureUndo();
+      const d = getData();
+      d.debts = (d.debts || []).filter(x => x.id !== btn.dataset.debtDel);
+      saveData(d); render(); showToast('Debt removed', true);
+    });
+  });
+
   content.querySelectorAll('[data-cf-period]').forEach(btn => {
     btn.addEventListener('click', () => {
       state.expensesPeriod = btn.dataset.cfPeriod;
@@ -3376,6 +4922,25 @@ function bindContentEvents() {
       const d = getData();
       d.expenses = (d.expenses || []).filter(e => e.id !== btn.dataset.deleteExpense);
       saveData(d); render(); showToast('Transaction deleted', true);
+    });
+  });
+
+  // Delete transaction (from transactions table)
+  content.querySelectorAll('[data-delete-tx]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const txId  = btn.dataset.deleteTx;
+      const src   = btn.dataset.txSource;
+      const cId   = btn.dataset.txClient;
+      if (deleteTx(txId, src, cId)) { render(); showToast('Transaction deleted', true); }
+    });
+  });
+
+  // Category drilldown — click expense row
+  content.querySelectorAll('[data-drilldown-cat]').forEach(row => {
+    row.addEventListener('click', () => {
+      state.catDrilldownPeriod = state.expensesPeriod || '3M';
+      openModal('expense-cat-detail', { catId: row.dataset.drilldownCat });
     });
   });
 
@@ -3447,6 +5012,119 @@ function bindContentEvents() {
     });
   });
 
+  // ── Tools page calculators ───────────────────────────────────────────────────
+  content.querySelectorAll('.tool-card').forEach(card => {
+    const toolId   = card.dataset.tool;
+    const resultEl = card.querySelector('.tool-result');
+
+    const getVals = () => {
+      const vals = {};
+      card.querySelectorAll('.tool-input[data-field]').forEach(inp => {
+        vals[inp.dataset.field] = parseFloat(inp.value) || 0;
+      });
+      return vals;
+    };
+
+    const recalc = () => {
+      const html = computeToolResult(toolId, getVals(), card);
+      resultEl.classList.toggle('has-result', !!html);
+      resultEl.innerHTML = html;
+    };
+
+    // Preset buttons (depth, deck, speed, coverage, etc.)
+    card.querySelectorAll('.tool-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const preset = btn.dataset.preset;
+        card.querySelectorAll(`.tool-preset[data-preset="${preset}"]`).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const inp = card.querySelector(`.tool-input[data-field="${preset}"]`);
+        if (inp) inp.value = btn.dataset.val;
+        recalc();
+      });
+    });
+
+    // Shape tabs (area calculator)
+    card.querySelectorAll('.tool-shape-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        card.querySelectorAll('.tool-shape-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        card.querySelectorAll('.tool-shape-panel').forEach(p => p.style.display = 'none');
+        const panel = card.querySelector(`.tool-shape-panel[data-shape="${tab.dataset.shape}"]`);
+        if (panel) panel.style.display = '';
+        recalc();
+      });
+      // Hide non-active panels on init
+      if (!tab.classList.contains('active')) {
+        const panel = card.querySelector(`.tool-shape-panel[data-shape="${tab.dataset.shape}"]`);
+        if (panel) panel.style.display = 'none';
+      }
+    });
+
+    // All inputs + selects trigger recalc
+    card.querySelectorAll('.tool-input, .tool-select').forEach(inp => {
+      inp.addEventListener('input', recalc);
+    });
+
+    // Run initial calculation
+    recalc();
+  });
+
+  // Reports — period tabs
+  content.querySelectorAll('[data-rpt-period]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.reportsPeriod = btn.dataset.rptPeriod;
+      render();
+    });
+  });
+
+  // Reports — trend chart hover tooltip
+  const chartTt = content.querySelector('#rpt-chart-tt');
+  if (chartTt) {
+    content.querySelectorAll('.rpt-trend-col[data-month]').forEach(col => {
+      col.addEventListener('mouseenter', () => {
+        const month = col.dataset.month;
+        const rev   = parseFloat(col.dataset.rev) || 0;
+        const exp   = parseFloat(col.dataset.exp) || 0;
+        const net   = rev - exp;
+        const hasExp = exp > 0;
+        chartTt.innerHTML = `
+          <div class="rpt-tt-month">${month}</div>
+          <div class="rpt-tt-row">
+            <span class="rpt-tt-dot" style="background:#4ade80"></span>
+            <span>Revenue</span>
+            <strong style="color:#4ade80">${formatCurrency(rev)}</strong>
+          </div>
+          ${hasExp ? `<div class="rpt-tt-row">
+            <span class="rpt-tt-dot" style="background:#f87171"></span>
+            <span>Expenses</span>
+            <strong style="color:#f87171">${formatCurrency(exp)}</strong>
+          </div>
+          <div class="rpt-tt-divider"></div>
+          <div class="rpt-tt-row">
+            <span class="rpt-tt-dot" style="background:transparent"></span>
+            <span>Net</span>
+            <strong style="color:${net >= 0 ? '#4ade80' : '#f87171'}">${formatCurrency(net)}</strong>
+          </div>` : ''}
+        `;
+        chartTt.style.display = 'block';
+
+        // Horizontal position: centre tooltip on hovered column, clamped within card
+        const cardEl  = col.closest('.rpt-chart-card');
+        const colRect = col.getBoundingClientRect();
+        const cardRect= cardEl.getBoundingClientRect();
+        const ttW     = chartTt.offsetWidth;
+        const cardW   = cardRect.width;
+        const idealLeft = colRect.left - cardRect.left + colRect.width / 2;
+        const clampedLeft = Math.max(ttW / 2 + 10, Math.min(cardW - ttW / 2 - 10, idealLeft));
+        chartTt.style.left = `${clampedLeft}px`;
+      });
+
+      col.addEventListener('mouseleave', () => {
+        chartTt.style.display = 'none';
+      });
+    });
+  }
+
   // Navigate to client from reports
   content.querySelectorAll('[data-nav-client-page]').forEach(el => {
     el.addEventListener('click', () => navigate('client-detail', { clientId: el.dataset.navClientPage }));
@@ -3467,6 +5145,14 @@ function bindContentEvents() {
     });
   });
 
+  // Today page — click client row (not buttons) to open client detail
+  content.querySelectorAll('[data-today-nav-client]').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return; // don't fire when tapping Done/Remove
+      navigate('client-detail', { clientId: row.dataset.todayNavClient });
+    });
+  });
+
   // Today page — remove scheduled job
   content.querySelectorAll('[data-sched-remove]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -3476,20 +5162,34 @@ function bindContentEvents() {
     });
   });
 
-  // Today page — mark scheduled job done (opens payment form)
+  // Today page — mark scheduled job done (opens payment form pre-filled from job)
   content.querySelectorAll('[data-sched-done]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const d = getData();
+      const d      = getData();
+      const jobId  = btn.dataset.schedDone;
+      const sj     = (d.scheduledJobs || []).find(j => j.id === jobId);
       const client = d.clients.find(c => c.id === btn.dataset.schedClient);
       const unpaid = (client?.payments || []).filter(p => p.status === 'unpaid').reduce((s, p) => s + p.amount, 0);
-      const firstSvc = (client?.services || []).find(s => s.frequency && s.frequency !== 'one-time');
-      const suggestedDesc = firstSvc ? firstSvc.type : (client?.services?.[0]?.type || 'Lawn service');
+
+      let desc = '';
+      if (sj?.description) {
+        desc = sj.description;
+      } else if (sj?.serviceType) {
+        desc = serviceLabel(sj.serviceType);
+      } else {
+        const firstSvc = (client?.services || []).find(s => s.active && s.frequency && s.frequency !== 'one-time')
+                      || (client?.services || [])[0];
+        desc = firstSvc ? serviceLabel(firstSvc.type) : 'Lawn service';
+      }
+
+      const amount = sj?.estimatedPrice || (unpaid > 0 ? unpaid : '');
+
       openModal('add-payment', {
         clientId: btn.dataset.schedClient,
         date: btn.dataset.date,
-        description: suggestedDesc,
-        amount: unpaid > 0 ? unpaid : '',
-        schedJobId: btn.dataset.schedDone,
+        description: desc,
+        amount,
+        schedJobId: jobId,
       });
     });
   });
@@ -3578,6 +5278,245 @@ function bindModalEvents() {
     saveData(d); closeModal(); render(); showToast('Transaction deleted', true);
   });
 
+  // ── Sched service select — history card click ──
+  sheet.querySelectorAll('[data-hist-svc]').forEach(card => {
+    card.addEventListener('click', () => {
+      const clientId = card.dataset.sssClientId;
+      // Deselect all history cards for this client
+      sheet.querySelectorAll(`[data-sss-client-id="${clientId}"][data-hist-svc]`).forEach(c => {
+        c.classList.remove('active');
+        c.style.background = ''; c.style.borderColor = '';
+      });
+      // Select this card
+      card.classList.add('active');
+      const ic = serviceIconColors(card.dataset.histType);
+      card.style.background = ic.bg; card.style.borderColor = ic.color;
+      // Write to hidden type input
+      sheet.querySelector(`#sss-type-${clientId}`).value = card.dataset.histType;
+      // Pre-fill desc + price inputs
+      const descEl  = sheet.querySelector(`#sss-desc-${clientId}`);
+      const priceEl = sheet.querySelector(`#sss-price-${clientId}`);
+      if (descEl)  descEl.value  = card.dataset.histNotes || '';
+      if (priceEl) priceEl.value = card.dataset.histPrice || '';
+      // Collapse the new-service form and clear its pills
+      const newForm = sheet.querySelector(`#sss-new-form-${clientId}`);
+      if (newForm) newForm.style.display = 'none';
+      const diffBtn = sheet.querySelector(`[data-sss-diff="${clientId}"]`);
+      if (diffBtn) diffBtn.classList.remove('active');
+      sheet.querySelectorAll(`[data-sss-client-id="${clientId}"][data-sss-type]`).forEach(p => {
+        p.classList.remove('active');
+        p.style.background = ''; p.style.borderColor = ''; p.style.color = '';
+      });
+    });
+  });
+
+  // ── Sched service select — "Use a different service" toggle ──
+  sheet.querySelectorAll('[data-sss-diff]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const clientId = btn.dataset.sssDiff;
+      const newForm  = sheet.querySelector(`#sss-new-form-${clientId}`);
+      if (!newForm) return;
+      const opening = newForm.style.display === 'none';
+      newForm.style.display = opening ? '' : 'none';
+      btn.classList.toggle('active', opening);
+      if (opening) {
+        // Deselect history cards and clear type so a pill must be chosen
+        sheet.querySelectorAll(`[data-sss-client-id="${clientId}"][data-hist-svc]`).forEach(c => {
+          c.classList.remove('active');
+          c.style.background = ''; c.style.borderColor = '';
+        });
+        sheet.querySelector(`#sss-type-${clientId}`).value = '';
+        const descEl  = sheet.querySelector(`#sss-desc-${clientId}`);
+        const priceEl = sheet.querySelector(`#sss-price-${clientId}`);
+        if (descEl)  descEl.value  = '';
+        if (priceEl) priceEl.value = '';
+      }
+    });
+  });
+
+  // ── Sched service select — new-service pill click ──
+  sheet.querySelectorAll('[data-sss-type]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const clientId = btn.dataset.sssClientId;
+      sheet.querySelectorAll(`[data-sss-client-id="${clientId}"][data-sss-type]`).forEach(b => {
+        b.classList.remove('active');
+        b.style.background = ''; b.style.borderColor = ''; b.style.color = '';
+      });
+      btn.classList.add('active');
+      const ic = serviceIconColors(btn.dataset.sssType);
+      btn.style.background = ic.bg; btn.style.borderColor = ic.color; btn.style.color = ic.color;
+      sheet.querySelector(`#sss-type-${clientId}`).value = btn.dataset.sssType;
+    });
+  });
+
+  // ── Sched service select — confirm ──
+  sheet.querySelector('#sss-confirm-btn')?.addEventListener('click', () => {
+    const date = sheet.querySelector('#sss-confirm-btn').dataset.date;
+    const d = getData();
+    if (!d.scheduledJobs) d.scheduledJobs = [];
+    const alreadyIds = new Set(d.scheduledJobs.filter(j => j.date === date).map(j => j.clientId));
+    let added = 0;
+    sheet.querySelectorAll('[data-sss-client]').forEach(block => {
+      const clientId       = block.dataset.sssClient;
+      if (alreadyIds.has(clientId)) return;
+      const serviceType    = block.querySelector('.sss-type-val')?.value || '';
+      const desc           = block.querySelector(`#sss-desc-${clientId}`)?.value.trim() || '';
+      const estimatedPrice = parseFloat(block.querySelector(`#sss-price-${clientId}`)?.value) || 0;
+      d.scheduledJobs.push({
+        id: generateId(), clientId, date, status: 'scheduled',
+        serviceType:    serviceType    || undefined,
+        description:    desc           || undefined,
+        estimatedPrice: estimatedPrice || undefined,
+        createdAt: new Date().toISOString(),
+      });
+      added++;
+    });
+    saveData(d);
+    closeModal();
+    render();
+    showToast(`Scheduled ${added} job${added !== 1 ? 's' : ''}!`);
+  });
+
+  // ── Debt form ──
+  // Category pills
+  sheet.querySelectorAll('[data-df-cat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      sheet.querySelectorAll('[data-df-cat]').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      sheet.querySelector('#df-cat').value = btn.dataset.dfCat;
+    });
+  });
+
+  // Live ETA preview (recalculates when balance or payment changes)
+  const updateEtaPreview = () => {
+    const balance  = parseFloat(sheet.querySelector('#df-balance')?.value) || 0;
+    const payment  = parseFloat(sheet.querySelector('#df-payment')?.value) || 0;
+    const rate     = parseFloat(sheet.querySelector('#df-rate')?.value)    || 0;
+    const preview  = sheet.querySelector('#df-eta-preview');
+    if (!preview) return;
+    if (!balance || !payment) { preview.innerHTML = ''; return; }
+    const months = debtMonthsLeft(balance, payment, rate);
+    if (!months || !isFinite(months)) {
+      preview.innerHTML = `<div class="debt-eta-chip debt-eta-warn">⚠️ Payment doesn't cover interest</div>`;
+      return;
+    }
+    const payoff = debtPayoffDate(months);
+    const dateStr = payoff.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const yrs  = Math.floor(months / 12);
+    const mos  = months % 12;
+    const dur  = yrs > 0 ? `${yrs}y ${mos}m` : `${mos} month${mos !== 1 ? 's' : ''}`;
+    let interestNote = '';
+    if (rate > 0) {
+      const totalPaid = months * payment;
+      const interest  = Math.max(totalPaid - balance, 0);
+      interestNote = ` · ~${formatCurrency(interest)} interest`;
+    }
+    preview.innerHTML = `<div class="debt-eta-chip">✓ Paid off in <strong>${dur}</strong> · Est. <strong>${dateStr}</strong>${interestNote}</div>`;
+  };
+  sheet.querySelector('#df-balance')?.addEventListener('input', updateEtaPreview);
+  sheet.querySelector('#df-payment')?.addEventListener('input', updateEtaPreview);
+  sheet.querySelector('#df-rate')?.addEventListener('input', updateEtaPreview);
+  updateEtaPreview();
+
+  // Save debt
+  sheet.querySelector('#df-save-btn')?.addEventListener('click', () => {
+    const name    = sheet.querySelector('#df-name')?.value.trim();
+    const balance = parseFloat(sheet.querySelector('#df-balance')?.value);
+    const payment = parseFloat(sheet.querySelector('#df-payment')?.value);
+    if (!name)                     { showToast('Please enter a name'); return; }
+    if (!balance || balance <= 0)  { showToast('Please enter a balance'); return; }
+    if (!payment || payment <= 0)  { showToast('Please enter a monthly payment'); return; }
+
+    const original = parseFloat(sheet.querySelector('#df-original')?.value) || balance;
+    const rate     = parseFloat(sheet.querySelector('#df-rate')?.value)    || 0;
+    const cat      = sheet.querySelector('#df-cat')?.value || 'other';
+    const notes    = sheet.querySelector('#df-notes')?.value.trim() || '';
+    const debtId   = sheet.querySelector('#df-save-btn')?.dataset.debtId;
+
+    const d = getData();
+    if (!d.debts) d.debts = [];
+
+    if (debtId) {
+      const existing = d.debts.find(x => x.id === debtId);
+      if (existing) {
+        existing.name = name; existing.balance = balance;
+        existing.originalBalance = Math.max(original, balance);
+        existing.monthlyPayment = payment; existing.interestRate = rate;
+        existing.category = cat; existing.notes = notes;
+      }
+    } else {
+      d.debts.push({
+        id: generateId(), name, balance,
+        originalBalance: Math.max(original, balance),
+        monthlyPayment: payment, interestRate: rate,
+        category: cat, notes, createdAt: new Date().toISOString(),
+      });
+    }
+    saveData(d);
+    closeModal();
+    state.expensesTab = 'debt';
+    render();
+    showToast(debtId ? 'Debt updated' : 'Debt added!');
+  });
+
+  // Delete debt (edit mode)
+  sheet.querySelector('#df-delete-btn')?.addEventListener('click', () => {
+    const debtId = sheet.querySelector('#df-delete-btn').dataset.debtId;
+    const d = getData();
+    if (!d.debts) return;
+    captureUndo();
+    d.debts = d.debts.filter(x => x.id !== debtId);
+    saveData(d);
+    closeModal();
+    state.expensesTab = 'debt';
+    render();
+    showToast('Debt removed');
+  });
+
+  // Quick client pay — search filter
+  sheet.querySelector('#qcp-search')?.addEventListener('input', (e) => {
+    const el = document.getElementById('modal-content');
+    el.innerHTML = renderQuickClientPay(e.target.value);
+    bindModalEvents();
+  });
+
+  // Quick client pay — pick a client → open payment form
+  sheet.querySelectorAll('[data-qcp-client]').forEach(row => {
+    row.addEventListener('click', () => {
+      const clientId = row.dataset.qcpClient;
+      openModal('add-payment', { clientId, date: todayISO() });
+    });
+  });
+
+  // Delete transaction (from drilldown modal)
+  sheet.querySelectorAll('[data-delete-tx]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const txId = btn.dataset.deleteTx;
+      const src  = btn.dataset.txSource;
+      const cId  = btn.dataset.txClient;
+      if (!deleteTx(txId, src, cId)) return;
+      // Re-render modal content in-place so user stays in drilldown
+      if (state.modal?.type === 'expense-cat-detail') {
+        document.getElementById('modal-content').innerHTML =
+          renderExpenseCatModal(state.modal.data.catId, state.catDrilldownPeriod);
+        bindModalEvents();
+      }
+      showToast('Transaction deleted', true);
+    });
+  });
+
+  // Category drilldown — period tabs (in-place re-render, no animation flicker)
+  sheet.querySelectorAll('[data-cat-period]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!state.modal || state.modal.type !== 'expense-cat-detail') return;
+      state.catDrilldownPeriod = btn.dataset.catPeriod;
+      const el = document.getElementById('modal-content');
+      el.innerHTML = renderExpenseCatModal(state.modal.data.catId, state.catDrilldownPeriod);
+      bindModalEvents();
+    });
+  });
+
   // Calendar day modal — Add Job button
   sheet.querySelector('#cal-modal-add-job')?.addEventListener('click', (e) => {
     const date = e.currentTarget.dataset.date;
@@ -3585,9 +5524,10 @@ function bindModalEvents() {
     openModal('add-job', { date });
   });
 
-  // Calendar day modal — tap a job row to go to client
+  // Day modal & dash-day — tap a job row (not its buttons) to go to client
   sheet.querySelectorAll('[data-nav-client]').forEach(row => {
-    row.addEventListener('click', () => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
       closeModal();
       navigate('client-detail', { clientId: row.dataset.navClient });
     });
@@ -3595,20 +5535,36 @@ function bindModalEvents() {
 
   // ── Dash Day modal ──
 
-  // Mark scheduled job done → open payment form to record it
+  // Mark scheduled job done → open payment form pre-filled from the scheduled job
   sheet.querySelectorAll('[data-sched-done]').forEach(btn => {
     btn.addEventListener('click', () => {
       const d = getData();
+      const jobId  = btn.dataset.schedDone;
+      const sj     = (d.scheduledJobs || []).find(j => j.id === jobId);
       const client = d.clients.find(c => c.id === btn.dataset.schedClient);
       const unpaid = (client?.payments || []).filter(p => p.status === 'unpaid').reduce((s, p) => s + p.amount, 0);
-      const firstSvc = (client?.services || []).find(s => s.frequency && s.frequency !== 'one-time');
-      const suggestedDesc = firstSvc ? firstSvc.type : (client?.services?.[0]?.type || 'Lawn service');
+
+      // Build description: prefer job's stored description → service type label → first client service → fallback
+      let desc = '';
+      if (sj?.description) {
+        desc = sj.description;
+      } else if (sj?.serviceType) {
+        desc = serviceLabel(sj.serviceType);
+      } else {
+        const firstSvc = (client?.services || []).find(s => s.active && s.frequency && s.frequency !== 'one-time')
+                      || (client?.services || [])[0];
+        desc = firstSvc ? serviceLabel(firstSvc.type) : 'Lawn service';
+      }
+
+      // Amount: prefer job's estimated price → outstanding unpaid → blank
+      const amount = sj?.estimatedPrice || (unpaid > 0 ? unpaid : '');
+
       openModal('add-payment', {
         clientId: btn.dataset.schedClient,
         date: btn.dataset.date,
-        description: suggestedDesc,
-        amount: unpaid > 0 ? unpaid : '',
-        schedJobId: btn.dataset.schedDone,
+        description: desc,
+        amount,
+        schedJobId: jobId,
         _returnDate: btn.dataset.date,
       });
     });
@@ -3666,7 +5622,7 @@ function bindModalEvents() {
     });
   });
 
-  // Confirm: add selected clients to scheduledJobs
+  // Confirm: route all selected clients through service-select for confirmation
   sheet.querySelector('#sched-confirm-add')?.addEventListener('click', () => {
     const date = sheet.querySelector('#sched-confirm-add').dataset.date;
     const selected = [...sheet.querySelectorAll('.sched-pick-row.sched-pick-selected')];
@@ -3674,18 +5630,20 @@ function bindModalEvents() {
     const d = getData();
     if (!d.scheduledJobs) d.scheduledJobs = [];
     const alreadyIds = new Set(d.scheduledJobs.filter(j => j.date === date).map(j => j.clientId));
-    let added = 0;
+
+    const clients = [];
     for (const row of selected) {
       const clientId = row.dataset.pickClient;
-      if (!alreadyIds.has(clientId)) {
-        d.scheduledJobs.push({ id: generateId(), clientId, date, status: 'scheduled', createdAt: new Date().toISOString() });
-        added++;
-      }
+      if (alreadyIds.has(clientId)) continue;
+      const client = d.clients.find(c => c.id === clientId);
+      if (client) clients.push(client);
     }
-    saveData(d);
-    render(); // refresh calendar chips
-    openModal('dash-day', { date });
-    showToast(`Scheduled ${added} client${added !== 1 ? 's' : ''}!`);
+
+    if (!clients.length) { showToast('All selected clients are already scheduled'); return; }
+
+    // Always open the service-select modal — history cards auto-select the obvious
+    // service for recurring clients so they can just tap "Schedule" immediately
+    openModal('sched-service-select', { clients, date });
   });
 
   // Pull from last week
@@ -3722,8 +5680,13 @@ function bindModalEvents() {
   // Pill selectors
   sheet.querySelectorAll('[data-pill-type]').forEach(btn => {
     btn.addEventListener('click', () => {
-      sheet.querySelectorAll('[data-pill-type]').forEach(b => b.classList.remove('selected'));
+      sheet.querySelectorAll('[data-pill-type]').forEach(b => {
+        b.classList.remove('selected');
+        b.style.background = ''; b.style.borderColor = ''; b.style.color = '';
+      });
       btn.classList.add('selected');
+      const ic = serviceIconColors(btn.dataset.pillType);
+      btn.style.background = ic.bg; btn.style.borderColor = ic.color; btn.style.color = ic.color;
       document.getElementById('f-svc-type').value = btn.dataset.pillType;
     });
   });
@@ -3739,8 +5702,13 @@ function bindModalEvents() {
   // New client inline service pills
   sheet.querySelectorAll('[data-new-svc-type]').forEach(btn => {
     btn.addEventListener('click', () => {
-      sheet.querySelectorAll('[data-new-svc-type]').forEach(b => b.classList.remove('selected'));
+      sheet.querySelectorAll('[data-new-svc-type]').forEach(b => {
+        b.classList.remove('selected');
+        b.style.background = ''; b.style.borderColor = ''; b.style.color = '';
+      });
       btn.classList.add('selected');
+      const ic = serviceIconColors(btn.dataset.newSvcType);
+      btn.style.background = ic.bg; btn.style.borderColor = ic.color; btn.style.color = ic.color;
       document.getElementById('f-new-svc-type').value = btn.dataset.newSvcType;
     });
   });
@@ -4058,9 +6026,68 @@ function init() {
     btn.addEventListener('click', () => navigate(btn.dataset.view));
   });
 
-  // Add buttons (mobile FAB + sidebar)
-  document.getElementById('fab-add').addEventListener('click', () => openModal('add-client'));
-  document.getElementById('sidebar-add-btn').addEventListener('click', () => openModal('add-client'));
+  // ── Quick Actions speed dial ──
+  const quickMenu     = document.getElementById('quick-menu');
+  const quickBackdrop = document.getElementById('quick-menu-backdrop');
+  const fab           = document.getElementById('fab-add');
+  const fabIconPlus   = document.getElementById('fab-icon-plus');
+  const fabIconClose  = document.getElementById('fab-icon-close');
+  const sidebarBtn    = document.getElementById('sidebar-add-btn');
+
+  let qmOpen = false;
+
+  function openQuickMenu(anchorEl) {
+    if (qmOpen) { closeQuickMenu(); return; }
+    qmOpen = true;
+
+    // Position menu above the anchor
+    const rect = anchorEl.getBoundingClientRect();
+    quickMenu.style.bottom  = (window.innerHeight - rect.top + 8) + 'px';
+    quickMenu.style.left    = rect.left + 'px';
+    quickMenu.style.width   = Math.max(rect.width, 240) + 'px';
+
+    quickMenu.classList.remove('qm-hidden');
+    quickMenu.classList.add('qm-open');
+    quickBackdrop.classList.remove('qm-hidden');
+
+    // FAB: swap icon
+    if (fabIconPlus)  fabIconPlus.style.display  = 'none';
+    if (fabIconClose) fabIconClose.style.display = '';
+    fab.classList.add('qm-fab-open');
+  }
+
+  function closeQuickMenu() {
+    if (!qmOpen) return;
+    qmOpen = false;
+    quickMenu.classList.remove('qm-open');
+    quickMenu.classList.add('qm-hidden');
+    quickBackdrop.classList.add('qm-hidden');
+    if (fabIconPlus)  fabIconPlus.style.display  = '';
+    if (fabIconClose) fabIconClose.style.display = 'none';
+    fab.classList.remove('qm-fab-open');
+  }
+
+  fab.addEventListener('click', () => openQuickMenu(fab));
+  sidebarBtn.addEventListener('click', () => openQuickMenu(sidebarBtn));
+  quickBackdrop.addEventListener('click', closeQuickMenu);
+
+  // Speed dial actions
+  document.getElementById('qm-schedule').addEventListener('click', () => {
+    closeQuickMenu();
+    openModal('dash-day', { date: todayISO() });
+  });
+  document.getElementById('qm-payment').addEventListener('click', () => {
+    closeQuickMenu();
+    openModal('quick-client-pay', {});
+  });
+  document.getElementById('qm-expense').addEventListener('click', () => {
+    closeQuickMenu();
+    openModal('expense-form', {});
+  });
+  document.getElementById('qm-add-client').addEventListener('click', () => {
+    closeQuickMenu();
+    openModal('add-client');
+  });
 
   // Modal overlay click to close
   document.getElementById('modal-overlay').addEventListener('click', closeModal);
