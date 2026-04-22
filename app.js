@@ -2812,31 +2812,27 @@ function computeToolResult(toolId, vals, card) {
 
   // ── Mowing Job Estimator ─────────────────────────────────────────────────────
   if (toolId === 'mowquote') {
-    const { acres, rate } = vals;
-    if (!acres || !rate) return '';
-    const scopeEl = card.querySelector('select[data-field="scope"]');
-    const scope   = scopeEl ? parseFloat(scopeEl.value) : 1.4;  // time multiplier
+    const { acres, ratepm } = vals;
+    if (!acres || !ratepm) return '';
 
-    const mowMins   = acres * 60;           // 1 hr/acre base mow time
-    const totalMins = mowMins * scope;      // add trim/edge/blow multiplier
-    const totalHrs  = totalMins / 60;
-    const perJob    = totalHrs * rate;
+    const mins   = Math.round(acres * 100);   // 0.51 acres → 51 mins
+    const perJob = mins * ratepm;
 
-    const h = Math.floor(totalMins / 60);
-    const m = Math.round(totalMins % 60);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
     const timeLabel = h > 0 ? `${h}h ${m}m` : `${m}m`;
 
-    const weeklyMo   = perJob * 4.33;
-    const biwklyMo   = perJob * 2.17;
-    const monthlyMo  = perJob;
+    const weeklyMo  = perJob * 4.33;
+    const biwklyMo  = perJob * 2.17;
+    const monthlyMo = perJob;
 
     return statBlock([
-      { val: timeLabel,           lbl: 'est. job time',   green: true },
-      { val: fmtC(perJob),        lbl: 'per job',         green: true },
-      { val: fmtC(weeklyMo),      lbl: 'weekly · /month'              },
-      { val: fmtC(biwklyMo),      lbl: 'bi-weekly · /month'           },
-      { val: fmtC(monthlyMo),     lbl: 'monthly · /month'             },
-    ]) + `<div class="tool-result-note">${acres} acres · ${totalHrs.toFixed(2)} hrs · ${fmtC(rate)}/hr</div>`;
+      { val: timeLabel,          lbl: 'est. mow time',      green: true },
+      { val: fmtC(perJob),       lbl: 'per job',            green: true },
+      { val: fmtC(weeklyMo),     lbl: 'weekly · /month'                 },
+      { val: fmtC(biwklyMo),     lbl: 'bi-weekly · /month'              },
+      { val: fmtC(monthlyMo),    lbl: 'monthly · /month'                },
+    ]) + `<div class="tool-result-note">${acres} acres = ${mins} min × ${fmtC(ratepm)}/min</div>`;
   }
 
   // ── Bags vs. Bulk ─────────────────────────────────────────────────────────────
@@ -3007,16 +3003,19 @@ function renderTools() {
       </div>` });
 
   // ── Business calculators ────────────────────────────────────────────────────
-  const mowquote = toolCard({ id: 'mowquote', emoji: '🌿', title: 'Mowing Job Estimator', desc: 'Acreage → time & quote per job',
+  const mowquote = toolCard({ id: 'mowquote', emoji: '🌿', title: 'Mowing Job Estimator', desc: 'Acreage × rate per min → job price',
     body: `
-      ${row2(field('Property size', 'acres', '0.42', 'acres'), field('Your rate', 'rate', '65', '/hr'))}
+      ${field('Property size', 'acres', '0.51', 'acres')}
       <div class="tool-group">
-        <label class="tool-label">Scope of work</label>
-        <select class="tool-select" data-field="scope">
-          <option value="1.0">Mow only</option>
-          <option value="1.4" selected>Mow + trim &amp; edge</option>
-          <option value="1.8">Full service (mow, trim, blow, haul)</option>
-        </select>
+        <label class="tool-label">Rate per minute</label>
+        <div class="tool-preset-row">
+          <button class="tool-preset" data-preset="ratepm" data-val="1.00">$1.00</button>
+          <button class="tool-preset" data-preset="ratepm" data-val="1.25">$1.25</button>
+          <button class="tool-preset active" data-preset="ratepm" data-val="1.50">$1.50</button>
+          <button class="tool-preset" data-preset="ratepm" data-val="1.75">$1.75</button>
+          <button class="tool-preset" data-preset="ratepm" data-val="2.00">$2.00</button>
+        </div>
+        <input class="tool-input tool-input-xs" type="number" data-field="ratepm" value="1.50" min="0.01" step="0.05" inputmode="decimal" />
       </div>` });
 
   const quote = toolCard({ id: 'quote', emoji: '💰', title: 'Job Quote Builder', desc: 'Labor + materials → total quote',
