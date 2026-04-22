@@ -22,6 +22,7 @@ let state = {
   editingExpenseId: null,
   dashCalMonth: new Date().getMonth(),
   dashCalYear: new Date().getFullYear(),
+  todayTab: 'route',
 };
 
 // ===== DATA =====
@@ -56,6 +57,7 @@ function loadData() {
       if (!d.scheduledJobs) d.scheduledJobs = [];
       if (!d.timeEntries) d.timeEntries = [];
       if (d.activeClockIn === undefined) d.activeClockIn = null;
+      if (!d.todos) d.todos = [];
       // activeClockIn shape: { startTime: ISO string, clientId: string|null } | null
       return d;
     }
@@ -1298,13 +1300,22 @@ function renderToday() {
       </div>`;
   }).join('');
 
-  return `
-    <div class="page-header">
-      <h1>Today</h1>
-    </div>
+  const pendingTodos = (data.todos || []).filter(t => !t.done).length;
+  const tab = state.todayTab || 'route';
 
-    ${clockHTML}
+  const tabBar = `
+    <div class="today-tabs">
+      <button class="today-tab ${tab === 'route' ? 'active' : ''}" data-today-tab="route">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Route
+      </button>
+      <button class="today-tab ${tab === 'todos' ? 'active' : ''}" data-today-tab="todos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        To Do${pendingTodos > 0 ? ` <span class="today-tab-badge">${pendingTodos}</span>` : ''}
+      </button>
+    </div>`;
 
+  const routeContent = `
     <div class="today-section">
       <div class="today-week-strip">${weekStripHTML}</div>
     </div>
@@ -1324,6 +1335,70 @@ function renderToday() {
     <div class="today-section">
       <div class="today-section-title">Quick Log <span class="today-section-count">${activeClients.length}</span></div>
       <div class="today-route-list">${quickLogHTML}</div>
+    </div>`;
+
+  const todosContent = renderTodayTodos(data.todos || []);
+
+  return `
+    <div class="page-header">
+      <h1>Today</h1>
+    </div>
+
+    ${clockHTML}
+
+    ${tabBar}
+
+    ${tab === 'todos' ? todosContent : routeContent}
+    <div class="spacer"></div>`;
+}
+
+function renderTodayTodos(todos) {
+  const pending = todos.filter(t => !t.done);
+  const done    = todos.filter(t => t.done);
+
+  const pendingHTML = pending.length === 0
+    ? `<div class="todo-empty">No tasks yet — type one above and hit Add</div>`
+    : pending.map(t => `
+        <div class="todo-item" data-todo-id="${t.id}">
+          <button class="todo-check" data-todo-toggle="${t.id}" title="Mark done"></button>
+          <span class="todo-text">${escHtml(t.text)}</span>
+          <button class="todo-delete" data-todo-delete="${t.id}" title="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>`).join('');
+
+  const doneHTML = done.length === 0 ? '' : `
+    <div class="todo-done-section">
+      <div class="todo-done-header">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="20 6 9 17 4 12"/></svg>
+        Completed · ${done.length}
+      </div>
+      ${done.map(t => `
+        <div class="todo-item todo-item-done" data-todo-id="${t.id}">
+          <button class="todo-check todo-checked" data-todo-toggle="${t.id}" title="Undo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+          <span class="todo-text">${escHtml(t.text)}</span>
+          <button class="todo-delete" data-todo-delete="${t.id}" title="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>`).join('')}
+    </div>`;
+
+  return `
+    <div class="today-section todo-section">
+      <div class="todo-add-bar">
+        <input type="text" class="todo-input" id="todo-new-input"
+          placeholder="e.g. Send quote to John, Post ads…" maxlength="200" autocomplete="off" />
+        <button class="todo-add-btn" id="todo-add-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add
+        </button>
+      </div>
+      <div class="todo-list">
+        ${pendingHTML}
+        ${doneHTML}
+      </div>
     </div>`;
 }
 
@@ -5150,6 +5225,55 @@ function bindContentEvents() {
     row.addEventListener('click', (e) => {
       if (e.target.closest('button')) return; // don't fire when tapping Done/Remove
       navigate('client-detail', { clientId: row.dataset.todayNavClient });
+    });
+  });
+
+  // Today page — tab switcher
+  content.querySelectorAll('[data-today-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.todayTab = btn.dataset.todayTab;
+      render();
+    });
+  });
+
+  // Today page — add new todo
+  const todoInput = content.querySelector('#todo-new-input');
+  content.querySelector('#todo-add-btn')?.addEventListener('click', () => {
+    const text = todoInput?.value.trim();
+    if (!text) return;
+    const d = getData();
+    if (!d.todos) d.todos = [];
+    d.todos.unshift({ id: uid(), text, done: false, createdAt: new Date().toISOString() });
+    saveData(d);
+    render();
+  });
+  todoInput?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const text = todoInput.value.trim();
+      if (!text) return;
+      const d = getData();
+      if (!d.todos) d.todos = [];
+      d.todos.unshift({ id: uid(), text, done: false, createdAt: new Date().toISOString() });
+      saveData(d);
+      render();
+    }
+  });
+
+  // Today page — toggle todo done/undone
+  content.querySelectorAll('[data-todo-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = getData();
+      const todo = (d.todos || []).find(t => t.id === btn.dataset.todoToggle);
+      if (todo) { todo.done = !todo.done; saveData(d); render(); }
+    });
+  });
+
+  // Today page — delete todo
+  content.querySelectorAll('[data-todo-delete]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = getData();
+      d.todos = (d.todos || []).filter(t => t.id !== btn.dataset.todoDelete);
+      saveData(d); render();
     });
   });
 
