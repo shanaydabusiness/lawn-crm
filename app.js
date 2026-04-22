@@ -400,6 +400,7 @@ function showConfirm(title, message, onOk) {
 
 // ===== RENDER =====
 function render() {
+  checkAutoDebtPayments();
   const content = document.getElementById('main-content');
   if (state.view === 'dashboard') content.innerHTML = renderDashboard();
   else if (state.view === 'clients') content.innerHTML = renderClients();
@@ -2356,11 +2357,29 @@ function renderDebtView() {
           if (interest > 0) totalInterestLabel = `~${formatCurrency(interest)} interest`;
         }
 
+        // Payment history (most recent first, show up to 3)
+        const recentPays = (debt.payments || []).slice(0, 3);
+        const payHistHTML = recentPays.length > 0 ? `
+          <div class="debt-pay-history">
+            <div class="debt-pay-history-label">Recent payments</div>
+            ${recentPays.map(p => `
+              <div class="debt-pay-row">
+                <span class="debt-pay-date">${p.date ? new Date(p.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>
+                <span class="debt-pay-note">${escHtml(p.note || (p.autoLogged ? '⚡ Auto-payment' : 'Payment'))}</span>
+                <span class="debt-pay-amount">−${formatCurrency(p.amount)}</span>
+              </div>`).join('')}
+          </div>` : '';
+
+        const autoPayBadge = debt.autoPayDay
+          ? `<span class="debt-auto-badge">⚡ Auto day ${debt.autoPayDay}</span>`
+          : '';
+
         return `
           <div class="debt-card">
             <div class="debt-card-head">
               <span class="debt-cat-badge">${cat.emoji} ${cat.label}</span>
               <div class="debt-card-actions">
+                ${autoPayBadge}
                 <button class="debt-action-btn" data-debt-edit="${debt.id}" title="Edit">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
@@ -2398,6 +2417,13 @@ function renderDebtView() {
               </div>` : ''}
             </div>
             ${debt.notes ? `<div class="debt-notes">${escHtml(debt.notes)}</div>` : ''}
+            ${payHistHTML}
+            <div class="debt-card-footer">
+              <button class="debt-log-pay-btn" data-debt-log-pay="${debt.id}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Log Payment
+              </button>
+            </div>
           </div>`;
       }).join('');
 
@@ -2514,6 +2540,14 @@ function renderDebtForm(debt = {}) {
         <input class="form-input" id="df-notes" type="text" placeholder="e.g. refinanced Mar 2025" value="${escHtml(debt.notes || '')}" />
       </div>
 
+      <div class="form-group">
+        <label class="form-label">Auto-pay day <span class="form-label-opt">optional</span></label>
+        <div class="df-autopay-row">
+          <input class="form-input df-autopay-input" id="df-autopay-day" type="number" placeholder="e.g. 1" min="1" max="31" step="1" inputmode="numeric" value="${debt.autoPayDay || ''}" />
+          <span class="df-autopay-hint">of each month — auto-logs payment &amp; expense</span>
+        </div>
+      </div>
+
       <div class="df-eta-wrap" id="df-eta-preview"></div>
 
     </div>
@@ -2523,6 +2557,90 @@ function renderDebtForm(debt = {}) {
         ${isEdit ? 'Save Changes' : 'Add Debt'}
       </button>
     </div>`;
+}
+
+function renderDebtPaymentForm(debt = {}) {
+  return `
+    <div class="sheet-header">
+      <div>
+        <h2>Log Payment</h2>
+        <p class="sheet-header-sub">${escHtml(debt.name || '')} · ${formatCurrency(debt.balance || 0)} remaining</p>
+      </div>
+      <button class="sheet-close" id="sheet-close-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="form-body">
+
+      <div class="form-group">
+        <label class="form-label">Payment amount *</label>
+        <div class="form-prefix-wrap">
+          <span class="form-prefix">$</span>
+          <input class="form-input" id="dp-amount" type="number" placeholder="0.00"
+            value="${debt.monthlyPayment || ''}" min="0" step="0.01" inputmode="decimal" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" id="dp-date" type="date" value="${todayISO()}" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Note <span class="form-label-opt">optional</span></label>
+        <input class="form-input" id="dp-note" type="text" placeholder="e.g. June payment" autocomplete="off" />
+      </div>
+
+      <label class="dp-expense-toggle">
+        <input type="checkbox" id="dp-log-expense" checked />
+        <span>Also log as business expense</span>
+      </label>
+
+    </div>
+    <div class="sheet-footer">
+      <button class="btn btn-primary btn-full" id="dp-save-btn" data-debt-id="${debt.id || ''}">Log Payment</button>
+    </div>`;
+}
+
+// ===== AUTO DEBT PAYMENTS =====
+function checkAutoDebtPayments() {
+  const d = getData();
+  const today = todayISO();
+  const todayDay = new Date().getDate();
+  const monthKey = today.slice(0, 7); // YYYY-MM
+
+  let autoLogged = [];
+  for (const debt of (d.debts || [])) {
+    const payDay = parseInt(debt.autoPayDay);
+    if (!payDay || payDay !== todayDay) continue;
+    if (!debt.payments) debt.payments = [];
+    // Already auto-logged this month?
+    const alreadyDone = debt.payments.some(p => p.autoLogged && p.date && p.date.startsWith(monthKey));
+    if (alreadyDone) continue;
+    const amount = debt.monthlyPayment || 0;
+    if (!amount) continue;
+
+    const expId = generateId();
+    debt.payments.unshift({
+      id: generateId(), amount, date: today,
+      note: 'Auto-payment', autoLogged: true, expenseId: expId,
+    });
+    debt.balance = Math.max(0, (debt.balance || 0) - amount);
+
+    if (!d.expenses) d.expenses = [];
+    d.expenses.push({
+      id: expId, type: 'expense', category: 'other',
+      description: `${debt.name} — auto payment`,
+      amount, date: today,
+      notes: 'Auto-logged from debt tracker', recurring: false,
+    });
+    autoLogged.push(debt.name);
+  }
+
+  if (autoLogged.length > 0) {
+    saveData(d);
+    setTimeout(() => showToast(`⚡ Auto-payment logged: ${autoLogged.join(', ')}`), 400);
+  }
 }
 
 // ===== TOOLS VIEW =====
@@ -4134,6 +4252,10 @@ function renderModal() {
     el.innerHTML = renderSchedServiceSelect(data);
   } else if (type === 'debt-form') {
     el.innerHTML = renderDebtForm(data);
+  } else if (type === 'debt-payment') {
+    const d = getData();
+    const debt = (d.debts || []).find(x => x.id === data.debtId) || {};
+    el.innerHTML = renderDebtPaymentForm(debt);
   }
   bindModalEvents();
 }
@@ -4868,6 +4990,13 @@ function bindContentEvents() {
     openModal('debt-form', {});
   });
 
+  // Log payment on a debt
+  content.querySelectorAll('[data-debt-log-pay]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openModal('debt-payment', { debtId: btn.dataset.debtLogPay });
+    });
+  });
+
   // Edit debt
   content.querySelectorAll('[data-debt-edit]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -5427,11 +5556,12 @@ function bindModalEvents() {
     if (!balance || balance <= 0)  { showToast('Please enter a balance'); return; }
     if (!payment || payment <= 0)  { showToast('Please enter a monthly payment'); return; }
 
-    const original = parseFloat(sheet.querySelector('#df-original')?.value) || balance;
-    const rate     = parseFloat(sheet.querySelector('#df-rate')?.value)    || 0;
-    const cat      = sheet.querySelector('#df-cat')?.value || 'other';
-    const notes    = sheet.querySelector('#df-notes')?.value.trim() || '';
-    const debtId   = sheet.querySelector('#df-save-btn')?.dataset.debtId;
+    const original   = parseFloat(sheet.querySelector('#df-original')?.value) || balance;
+    const rate       = parseFloat(sheet.querySelector('#df-rate')?.value)    || 0;
+    const cat        = sheet.querySelector('#df-cat')?.value || 'other';
+    const notes      = sheet.querySelector('#df-notes')?.value.trim() || '';
+    const autoPayDay = parseInt(sheet.querySelector('#df-autopay-day')?.value) || null;
+    const debtId     = sheet.querySelector('#df-save-btn')?.dataset.debtId;
 
     const d = getData();
     if (!d.debts) d.debts = [];
@@ -5443,13 +5573,16 @@ function bindModalEvents() {
         existing.originalBalance = Math.max(original, balance);
         existing.monthlyPayment = payment; existing.interestRate = rate;
         existing.category = cat; existing.notes = notes;
+        existing.autoPayDay = autoPayDay;
       }
     } else {
       d.debts.push({
         id: generateId(), name, balance,
         originalBalance: Math.max(original, balance),
         monthlyPayment: payment, interestRate: rate,
-        category: cat, notes, createdAt: new Date().toISOString(),
+        category: cat, notes, autoPayDay,
+        payments: [],
+        createdAt: new Date().toISOString(),
       });
     }
     saveData(d);
@@ -5471,6 +5604,41 @@ function bindModalEvents() {
     state.expensesTab = 'debt';
     render();
     showToast('Debt removed');
+  });
+
+  // Save debt payment
+  sheet.querySelector('#dp-save-btn')?.addEventListener('click', () => {
+    const debtId = sheet.querySelector('#dp-save-btn')?.dataset.debtId;
+    const amount = parseFloat(sheet.querySelector('#dp-amount')?.value);
+    if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
+
+    const date       = sheet.querySelector('#dp-date')?.value || todayISO();
+    const note       = sheet.querySelector('#dp-note')?.value.trim() || '';
+    const logExpense = sheet.querySelector('#dp-log-expense')?.checked !== false;
+
+    const d = getData();
+    const debt = (d.debts || []).find(x => x.id === debtId);
+    if (!debt) return;
+
+    if (!debt.payments) debt.payments = [];
+    const expId = generateId();
+    debt.payments.unshift({ id: generateId(), amount, date, note, expenseId: logExpense ? expId : null });
+    debt.balance = Math.max(0, (debt.balance || 0) - amount);
+
+    if (logExpense) {
+      if (!d.expenses) d.expenses = [];
+      d.expenses.push({
+        id: expId, type: 'expense', category: 'other',
+        description: `${debt.name} payment${note ? ' — ' + note : ''}`,
+        amount, date, notes: 'Logged from debt tracker', recurring: false,
+      });
+    }
+
+    saveData(d);
+    closeModal();
+    state.expensesTab = 'debt';
+    render();
+    showToast(`Payment of ${formatCurrency(amount)} logged!`);
   });
 
   // Quick client pay — search filter
