@@ -2097,7 +2097,18 @@ html, body {
 .svc-pill-icon svg { width: 16px; height: 16px; }
 
 .service-details { flex: 1; min-width: 0; }
-.service-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.service-name { font-size: 14px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+.svc-acreage-chip {
+  font-size: 10px;
+  font-weight: 700;
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  padding: 1px 7px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
 .service-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .service-price { font-size: 16px; font-weight: 700; color: var(--green-primary); }
 

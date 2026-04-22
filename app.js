@@ -894,7 +894,7 @@ function renderClientDetail() {
       <div class="service-item">
         <div class="service-icon" style="background:${ic.bg};color:${ic.color}">${serviceIconSvg(svc.type)}</div>
         <div class="service-details">
-          <div class="service-name">${serviceLabel(svc.type)}</div>
+          <div class="service-name">${serviceLabel(svc.type)}${svc.type === 'mowing' && svc.propertySize ? `<span class="svc-acreage-chip">${svc.propertySize} ac</span>` : ''}</div>
           <div class="service-meta">${FREQ_LABELS[svc.frequency] || svc.frequency}${svc.notes ? ' · ' + escHtml(svc.notes) : ''}</div>
           ${hasThreshold ? `
             <button class="svc-schedule-toggle ${tracked ? 'tracked' : 'untracked'}" data-toggle-schedule="${svc.id}" data-client-id="${client.id}" title="${tracked ? 'Exclude from upcoming jobs' : 'Include in upcoming jobs'}">
@@ -2810,6 +2810,35 @@ function computeToolResult(toolId, vals, card) {
       </div>`;
   }
 
+  // ── Mowing Job Estimator ─────────────────────────────────────────────────────
+  if (toolId === 'mowquote') {
+    const { acres, rate } = vals;
+    if (!acres || !rate) return '';
+    const scopeEl = card.querySelector('select[data-field="scope"]');
+    const scope   = scopeEl ? parseFloat(scopeEl.value) : 1.4;  // time multiplier
+
+    const mowMins   = acres * 60;           // 1 hr/acre base mow time
+    const totalMins = mowMins * scope;      // add trim/edge/blow multiplier
+    const totalHrs  = totalMins / 60;
+    const perJob    = totalHrs * rate;
+
+    const h = Math.floor(totalMins / 60);
+    const m = Math.round(totalMins % 60);
+    const timeLabel = h > 0 ? `${h}h ${m}m` : `${m}m`;
+
+    const weeklyMo   = perJob * 4.33;
+    const biwklyMo   = perJob * 2.17;
+    const monthlyMo  = perJob;
+
+    return statBlock([
+      { val: timeLabel,           lbl: 'est. job time',   green: true },
+      { val: fmtC(perJob),        lbl: 'per job',         green: true },
+      { val: fmtC(weeklyMo),      lbl: 'weekly · /month'              },
+      { val: fmtC(biwklyMo),      lbl: 'bi-weekly · /month'           },
+      { val: fmtC(monthlyMo),     lbl: 'monthly · /month'             },
+    ]) + `<div class="tool-result-note">${acres} acres · ${totalHrs.toFixed(2)} hrs · ${fmtC(rate)}/hr</div>`;
+  }
+
   // ── Bags vs. Bulk ─────────────────────────────────────────────────────────────
   if (toolId === 'bagsvbulk') {
     const { yards, bagprice, bulkprice } = vals;
@@ -2978,6 +3007,18 @@ function renderTools() {
       </div>` });
 
   // ── Business calculators ────────────────────────────────────────────────────
+  const mowquote = toolCard({ id: 'mowquote', emoji: '🌿', title: 'Mowing Job Estimator', desc: 'Acreage → time & quote per job',
+    body: `
+      ${row2(field('Property size', 'acres', '0.42', 'acres'), field('Your rate', 'rate', '65', '/hr'))}
+      <div class="tool-group">
+        <label class="tool-label">Scope of work</label>
+        <select class="tool-select" data-field="scope">
+          <option value="1.0">Mow only</option>
+          <option value="1.4" selected>Mow + trim &amp; edge</option>
+          <option value="1.8">Full service (mow, trim, blow, haul)</option>
+        </select>
+      </div>` });
+
   const quote = toolCard({ id: 'quote', emoji: '💰', title: 'Job Quote Builder', desc: 'Labor + materials → total quote',
     body: `
       ${row2(field('Hours on job', 'hours', '2', 'hrs'), field('Your hourly rate', 'rate', '75', '/hr'))}
@@ -3015,6 +3056,7 @@ function renderTools() {
 
       <div class="tools-cat-label"><span class="tools-cat-icon">💼</span> Business Calculators</div>
       <div class="tools-grid">
+        ${mowquote}
         ${quote}
         ${bagsvbulk}
       </div>
@@ -4357,6 +4399,13 @@ function renderServiceForm(data = {}) {
         <div class="form-prefix-wrap">
           <span class="form-prefix">$</span>
           <input class="form-input" type="number" id="f-svc-price" placeholder="0.00" value="${data.price || ''}" inputmode="decimal" min="0" step="0.01" />
+        </div>
+      </div>
+      <div class="form-group mowing-only-group" style="${(data.type || '') === 'mowing' ? '' : 'display:none'}">
+        <label class="form-label">Property size <span class="form-label-opt">optional</span></label>
+        <div class="form-suffix-wrap">
+          <input class="form-input" type="number" id="f-svc-prop-size" placeholder="e.g. 0.42" min="0" step="0.01" inputmode="decimal" value="${data.propertySize || ''}" />
+          <span class="form-suffix">acres</span>
         </div>
       </div>
       <div class="form-group">
@@ -5839,6 +5888,9 @@ function bindModalEvents() {
       const ic = serviceIconColors(btn.dataset.pillType);
       btn.style.background = ic.bg; btn.style.borderColor = ic.color; btn.style.color = ic.color;
       document.getElementById('f-svc-type').value = btn.dataset.pillType;
+      // Show/hide property size field for mowing only
+      const mowGroup = sheet.querySelector('.mowing-only-group');
+      if (mowGroup) mowGroup.style.display = btn.dataset.pillType === 'mowing' ? '' : 'none';
     });
   });
 
@@ -5971,6 +6023,7 @@ function bindModalEvents() {
         svc.frequency = freq;
         svc.price = price;
         svc.notes = document.getElementById('f-svc-notes').value.trim();
+        svc.propertySize = parseFloat(document.getElementById('f-svc-prop-size')?.value) || null;
       }
       saveData(d); closeModal(); showToast('Service updated'); render();
     } else {
@@ -5981,6 +6034,7 @@ function bindModalEvents() {
         price,
         active: true,
         notes: document.getElementById('f-svc-notes').value.trim(),
+        propertySize: parseFloat(document.getElementById('f-svc-prop-size')?.value) || null,
         startDate: new Date().toISOString(),
       });
       saveData(d); closeModal(); showToast('Service added!'); render();
