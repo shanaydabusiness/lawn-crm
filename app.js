@@ -2357,19 +2357,6 @@ function renderDebtView() {
           if (interest > 0) totalInterestLabel = `~${formatCurrency(interest)} interest`;
         }
 
-        // Payment history (most recent first, show up to 3)
-        const recentPays = (debt.payments || []).slice(0, 3);
-        const payHistHTML = recentPays.length > 0 ? `
-          <div class="debt-pay-history">
-            <div class="debt-pay-history-label">Recent payments</div>
-            ${recentPays.map(p => `
-              <div class="debt-pay-row">
-                <span class="debt-pay-date">${p.date ? new Date(p.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>
-                <span class="debt-pay-note">${escHtml(p.note || (p.autoLogged ? '⚡ Auto-payment' : 'Payment'))}</span>
-                <span class="debt-pay-amount">−${formatCurrency(p.amount)}</span>
-              </div>`).join('')}
-          </div>` : '';
-
         const autoPayBadge = debt.autoPayDay
           ? `<span class="debt-auto-badge">⚡ Auto day ${debt.autoPayDay}</span>`
           : '';
@@ -2380,6 +2367,9 @@ function renderDebtView() {
               <span class="debt-cat-badge">${cat.emoji} ${cat.label}</span>
               <div class="debt-card-actions">
                 ${autoPayBadge}
+                <button class="debt-action-btn debt-log-pay-sm" data-debt-log-pay="${debt.id}" title="Log payment">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
                 <button class="debt-action-btn" data-debt-edit="${debt.id}" title="Edit">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
@@ -2417,13 +2407,6 @@ function renderDebtView() {
               </div>` : ''}
             </div>
             ${debt.notes ? `<div class="debt-notes">${escHtml(debt.notes)}</div>` : ''}
-            ${payHistHTML}
-            <div class="debt-card-footer">
-              <button class="debt-log-pay-btn" data-debt-log-pay="${debt.id}">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Log Payment
-              </button>
-            </div>
           </div>`;
       }).join('');
 
