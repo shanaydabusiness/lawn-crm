@@ -2,11 +2,13 @@
   "name": "lawn-crm",
   "version": "1.0.0",
   "description": "Personal CRM for landscaping & lawn care",
+  "main": "server.js",
   "scripts": {
-    "start": "serve . -l ${PORT:-3000}",
-    "dev": "serve . -l 3400"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
-    "serve": "^14.2.4"
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
   }
 }

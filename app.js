@@ -1,5 +1,42 @@
 // ===== LAWN CRM APP =====
 
+// ===== CLOUD SYNC =====
+const CRM_TOKEN = 'MYLAWNKEY2026';
+
+let _syncStatus = 'idle'; // 'idle' | 'syncing' | 'error'
+
+function setSyncStatus(s) {
+  _syncStatus = s;
+  const dot = document.getElementById('sync-dot');
+  if (!dot) return;
+  dot.className = 'sync-dot sync-' + s;
+  dot.title = s === 'syncing' ? 'Syncing…' : s === 'error' ? 'Sync failed — working offline' : 'Synced';
+}
+
+async function cloudSave(data) {
+  setSyncStatus('syncing');
+  try {
+    const res = await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-crm-token': CRM_TOKEN },
+      body: JSON.stringify(data),
+    });
+    setSyncStatus(res.ok ? 'idle' : 'error');
+  } catch {
+    setSyncStatus('error');
+  }
+}
+
+async function cloudLoad() {
+  try {
+    const res = await fetch('/api/data', { headers: { 'x-crm-token': CRM_TOKEN } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 const STORAGE_KEY = 'lawn_crm_v1';
 
 // ===== STATE =====
@@ -66,6 +103,7 @@ function loadData() {
 function saveData(data) {
   data.lastUpdated = new Date().toISOString();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  cloudSave(data); // background — never blocks UI
 }
 
 function getData() {
@@ -6219,7 +6257,24 @@ function escHtml(str) {
 }
 
 // ===== INIT =====
-function init() {
+async function init() {
+  // Fetch cloud data and merge before first render
+  const cloudData  = await cloudLoad();
+  const localData  = loadData();
+  if (cloudData) {
+    const cloudTime = cloudData.lastUpdated || '';
+    const localTime = localData.lastUpdated || '';
+    if (cloudTime >= localTime) {
+      // Cloud is same or newer — adopt it
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
+    } else {
+      // Local is newer (offline edits) — push to cloud
+      cloudSave(localData);
+    }
+  } else if ((localData.clients || []).length > 0) {
+    // First load on this device with local data — seed the cloud
+    cloudSave(localData);
+  }
   // Bottom nav buttons
   document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
     btn.addEventListener('click', () => navigate(btn.dataset.view));
