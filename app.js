@@ -62,6 +62,7 @@ let state = {
   budgetMonth: new Date().toISOString().slice(0, 7),
   forecastPeriods: '6M',
   forecastExcluded: [],
+  forecastSection: 'net',
 };
 
 // ===== DATA =====
@@ -2835,6 +2836,7 @@ function renderForecastView() {
   const data     = getData();
   const lookback = state.forecastPeriods || '6M';
   const excluded = new Set(state.forecastExcluded || []);
+  const section  = state.forecastSection || 'net';
   const now      = new Date();
 
   const monthCount = lookback === '3M' ? 3 : lookback === '12M' ? 12 : 6;
@@ -2844,140 +2846,163 @@ function renderForecastView() {
     months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
   }
   const startISO = months[0] + '-01';
-  const endISO   = todayISO();
 
-  const allExp = (data.expenses || []).filter(e => e.type !== 'income' && e.date >= startISO && e.date <= endISO);
-  const allRev = (data.expenses || []).filter(e => e.type === 'income'  && e.date >= startISO && e.date <= endISO);
+  // ── Revenue: client payments (all statuses) + data.expenses type=income ──
+  const clientPayments = [];
+  for (const c of data.clients || []) {
+    for (const p of c.payments || []) {
+      if (p.date >= startISO) clientPayments.push(p);
+    }
+  }
+  const incExpenses = (data.expenses || []).filter(e => e.type === 'income' && e.date >= startISO);
+  const allRevItems = [...clientPayments, ...incExpenses];
 
+  // ── Expenses ──
+  const allExp = (data.expenses || []).filter(e => e.type !== 'income' && e.date >= startISO);
+
+  // ── Monthly totals ──
   const monthlyExpTotals = months.map(m =>
     allExp.filter(e => !excluded.has(e.id) && e.date.startsWith(m))
           .reduce((s, e) => s + (e.amount||0), 0)
   );
   const monthlyRevTotals = months.map(m =>
-    allRev.filter(e => e.date.startsWith(m))
-          .reduce((s, e) => s + (e.amount||0), 0)
+    allRevItems.filter(r => (r.date||'').startsWith(m))
+               .reduce((s, r) => s + (r.amount||0), 0)
   );
   const monthlyNetTotals = months.map((_, i) => monthlyRevTotals[i] - monthlyExpTotals[i]);
 
   const expNonZero = monthlyExpTotals.filter(v => v > 0);
-  const revNonZero = monthlyRevTotals.filter(v => v > 0);
+  const revAll     = monthlyRevTotals; // include zero months so sparse months pull mean down
+  const revNonZero = revAll.filter(v => v > 0);
 
   const simExp = runMonteCarlo(expNonZero);
-  const simRev = runMonteCarlo(revNonZero.length ? revNonZero : [0]);
+  const simRev = revNonZero.length ? runMonteCarlo(revAll) : null;
   const simNet = runMonteCarloNet(
-    revNonZero.length ? revNonZero : [0],
+    revAll.length ? revAll : [0],
     expNonZero.length ? expNonZero : [0]
   );
 
   const avgExpMonthly = expNonZero.length ? expNonZero.reduce((a,b)=>a+b,0)/expNonZero.length : 0;
-  const avgRevMonthly = revNonZero.length ? revNonZero.reduce((a,b)=>a+b,0)/revNonZero.length : 0;
+  const avgRevMonthly = revAll.length ? revAll.reduce((a,b)=>a+b,0)/revAll.length : 0;
 
-  // ── Net Income forecast cards ──
-  const netCards = simNet ? `
-    <div class="forecast-section-label">
-      <span class="forecast-section-icon">📊</span> Net Income Forecast
-      <span class="forecast-section-sub">Annual revenue minus expenses · 2,000 simulations</span>
-    </div>
-    <div class="forecast-sim-grid">
-      <div class="forecast-sim-card${simNet.p10>=0?' green':' red'}">
-        <div class="forecast-sim-label">Conservative (P10)</div>
-        <div class="forecast-sim-value">${fmtNet(simNet.p10)}</div>
-        <div class="forecast-sim-sub">Low-revenue scenario</div>
-      </div>
-      <div class="forecast-sim-card${simNet.p50>=0?' blue':' red'}">
-        <div class="forecast-sim-label">Median (P50)</div>
-        <div class="forecast-sim-value">${fmtNet(simNet.p50)}</div>
-        <div class="forecast-sim-sub">Most likely net income</div>
-      </div>
-      <div class="forecast-sim-card${simNet.p90>=0?' green':' amber'}">
-        <div class="forecast-sim-label">Optimistic (P90)</div>
-        <div class="forecast-sim-value">${fmtNet(simNet.p90)}</div>
-        <div class="forecast-sim-sub">High-revenue scenario</div>
-      </div>
-      <div class="forecast-sim-card">
-        <div class="forecast-sim-label">Simulated mean</div>
-        <div class="forecast-sim-value">${fmtNet(simNet.mean)}</div>
-        <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
-      </div>
-    </div>` : `<div class="forecast-empty">Log income transactions to unlock net income forecast.</div>`;
+  // ── Section tab switcher ──
+  const SECTIONS = [
+    { id: 'net',     label: 'Net Income' },
+    { id: 'revenue', label: 'Revenue'    },
+    { id: 'expense', label: 'Expenses'   },
+  ];
+  const sectionTabs = `
+    <div class="forecast-section-tabs">
+      ${SECTIONS.map(s => `<button class="forecast-section-tab${section===s.id?' active':''}" data-forecast-section="${s.id}">${s.label}</button>`).join('')}
+    </div>`;
 
-  // ── Revenue forecast cards ──
-  const revCards = (revNonZero.length && simRev) ? `
-    <div class="forecast-section-label" style="margin-top:20px">
-      <span class="forecast-section-icon">💵</span> Revenue Forecast
-      <span class="forecast-section-sub">Projected annual income · ${formatCurrency(avgRevMonthly)}/mo avg</span>
-    </div>
-    <div class="forecast-sim-grid">
-      <div class="forecast-sim-card amber">
-        <div class="forecast-sim-label">Conservative (P10)</div>
-        <div class="forecast-sim-value">${formatCurrency(simRev.p10)}</div>
-        <div class="forecast-sim-sub">Low-revenue scenario</div>
-      </div>
-      <div class="forecast-sim-card blue">
-        <div class="forecast-sim-label">Median (P50)</div>
-        <div class="forecast-sim-value">${formatCurrency(simRev.p50)}</div>
-        <div class="forecast-sim-sub">Most likely annual revenue</div>
-      </div>
-      <div class="forecast-sim-card green">
-        <div class="forecast-sim-label">Optimistic (P90)</div>
-        <div class="forecast-sim-value">${formatCurrency(simRev.p90)}</div>
-        <div class="forecast-sim-sub">High-revenue scenario</div>
-      </div>
-      <div class="forecast-sim-card">
-        <div class="forecast-sim-label">Simulated mean</div>
-        <div class="forecast-sim-value">${formatCurrency(simRev.mean)}</div>
-        <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
-      </div>
-    </div>` : '';
+  // ── Active section cards ──
+  let activeCards = '';
 
-  // ── Expense forecast cards ──
-  const expCards = simExp ? `
-    <div class="forecast-section-label" style="margin-top:20px">
-      <span class="forecast-section-icon">🧾</span> Expense Forecast
-      <span class="forecast-section-sub">Projected annual spend · ${formatCurrency(avgExpMonthly)}/mo avg</span>
-    </div>
-    <div class="forecast-sim-grid">
-      <div class="forecast-sim-card green">
-        <div class="forecast-sim-label">Optimistic (P10)</div>
-        <div class="forecast-sim-value">${formatCurrency(simExp.p10)}</div>
-        <div class="forecast-sim-sub">Low-spend scenario</div>
+  if (section === 'net') {
+    activeCards = simNet ? `
+      <div class="forecast-sim-grid">
+        <div class="forecast-sim-card${simNet.p10>=0?' green':' red'}">
+          <div class="forecast-sim-label">Conservative (P10)</div>
+          <div class="forecast-sim-value">${fmtNet(simNet.p10)}</div>
+          <div class="forecast-sim-sub">Low-revenue scenario</div>
+        </div>
+        <div class="forecast-sim-card${simNet.p50>=0?' blue':' red'}">
+          <div class="forecast-sim-label">Median (P50)</div>
+          <div class="forecast-sim-value">${fmtNet(simNet.p50)}</div>
+          <div class="forecast-sim-sub">Most likely net income</div>
+        </div>
+        <div class="forecast-sim-card${simNet.p90>=0?' green':' amber'}">
+          <div class="forecast-sim-label">Optimistic (P90)</div>
+          <div class="forecast-sim-value">${fmtNet(simNet.p90)}</div>
+          <div class="forecast-sim-sub">High-revenue scenario</div>
+        </div>
+        <div class="forecast-sim-card">
+          <div class="forecast-sim-label">Simulated mean</div>
+          <div class="forecast-sim-value">${fmtNet(simNet.mean)}</div>
+          <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
+        </div>
+      </div>` : `<div class="forecast-empty">Log income or client payments to unlock this forecast.</div>`;
+  }
+
+  if (section === 'revenue') {
+    activeCards = simRev ? `
+      <div class="forecast-sim-grid">
+        <div class="forecast-sim-card amber">
+          <div class="forecast-sim-label">Conservative (P10)</div>
+          <div class="forecast-sim-value">${formatCurrency(simRev.p10)}</div>
+          <div class="forecast-sim-sub">Low-revenue scenario</div>
+        </div>
+        <div class="forecast-sim-card blue">
+          <div class="forecast-sim-label">Median (P50)</div>
+          <div class="forecast-sim-value">${formatCurrency(simRev.p50)}</div>
+          <div class="forecast-sim-sub">Most likely annual revenue</div>
+        </div>
+        <div class="forecast-sim-card green">
+          <div class="forecast-sim-label">Optimistic (P90)</div>
+          <div class="forecast-sim-value">${formatCurrency(simRev.p90)}</div>
+          <div class="forecast-sim-sub">High-revenue scenario</div>
+        </div>
+        <div class="forecast-sim-card">
+          <div class="forecast-sim-label">Simulated mean</div>
+          <div class="forecast-sim-value">${formatCurrency(simRev.mean)}</div>
+          <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
+        </div>
+      </div>` : `<div class="forecast-empty">No revenue recorded in this period yet.</div>`;
+  }
+
+  if (section === 'expense') {
+    activeCards = simExp ? `
+      <div class="forecast-sim-grid">
+        <div class="forecast-sim-card green">
+          <div class="forecast-sim-label">Optimistic (P10)</div>
+          <div class="forecast-sim-value">${formatCurrency(simExp.p10)}</div>
+          <div class="forecast-sim-sub">Low-spend scenario</div>
+        </div>
+        <div class="forecast-sim-card blue">
+          <div class="forecast-sim-label">Median (P50)</div>
+          <div class="forecast-sim-value">${formatCurrency(simExp.p50)}</div>
+          <div class="forecast-sim-sub">Most likely annual spend</div>
+        </div>
+        <div class="forecast-sim-card amber">
+          <div class="forecast-sim-label">Conservative (P90)</div>
+          <div class="forecast-sim-value">${formatCurrency(simExp.p90)}</div>
+          <div class="forecast-sim-sub">High-spend scenario</div>
+        </div>
+        <div class="forecast-sim-card">
+          <div class="forecast-sim-label">Simulated mean</div>
+          <div class="forecast-sim-value">${formatCurrency(simExp.mean)}</div>
+          <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
+        </div>
       </div>
-      <div class="forecast-sim-card blue">
-        <div class="forecast-sim-label">Median (P50)</div>
-        <div class="forecast-sim-value">${formatCurrency(simExp.p50)}</div>
-        <div class="forecast-sim-sub">Most likely annual spend</div>
-      </div>
-      <div class="forecast-sim-card amber">
-        <div class="forecast-sim-label">Conservative (P90)</div>
-        <div class="forecast-sim-value">${formatCurrency(simExp.p90)}</div>
-        <div class="forecast-sim-sub">High-spend scenario</div>
-      </div>
-      <div class="forecast-sim-card">
-        <div class="forecast-sim-label">Simulated mean</div>
-        <div class="forecast-sim-value">${formatCurrency(simExp.mean)}</div>
-        <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
-      </div>
-    </div>
-    <div class="forecast-range-bar-wrap">
-      <div class="forecast-range-label">Annual spend range</div>
-      <div class="forecast-range-bar">
-        <div class="forecast-range-fill" style="left:0;width:${simExp.p90>0?Math.round((simExp.p25/simExp.p90)*100):0}%;background:#d1fae5"></div>
-        <div class="forecast-range-fill forecast-range-mid" style="left:${simExp.p90>0?Math.round((simExp.p25/simExp.p90)*100):0}%;width:${simExp.p90>0?Math.round(((simExp.p75-simExp.p25)/simExp.p90)*100):0}%;background:#6366f1"></div>
-        <div class="forecast-range-marker" style="left:${simExp.p90>0?Math.round((simExp.p50/simExp.p90)*100):50}%" title="P50: ${formatCurrency(simExp.p50)}"></div>
-      </div>
-      <div class="forecast-range-ends">
-        <span>${formatCurrency(simExp.p10)}</span>
-        <span class="forecast-range-mid-label">P25–P75 band</span>
-        <span>${formatCurrency(simExp.p90)}</span>
-      </div>
-    </div>` : `<div class="forecast-empty" style="margin-top:20px">Not enough expense data yet — add transactions and they'll appear here.</div>`;
+      <div class="forecast-range-bar-wrap">
+        <div class="forecast-range-label">Annual spend range</div>
+        <div class="forecast-range-bar">
+          <div class="forecast-range-fill" style="left:0;width:${simExp.p90>0?Math.round((simExp.p25/simExp.p90)*100):0}%;background:#d1fae5"></div>
+          <div class="forecast-range-fill forecast-range-mid" style="left:${simExp.p90>0?Math.round((simExp.p25/simExp.p90)*100):0}%;width:${simExp.p90>0?Math.round(((simExp.p75-simExp.p25)/simExp.p90)*100):0}%;background:#6366f1"></div>
+          <div class="forecast-range-marker" style="left:${simExp.p90>0?Math.round((simExp.p50/simExp.p90)*100):50}%" title="P50: ${formatCurrency(simExp.p50)}"></div>
+        </div>
+        <div class="forecast-range-ends">
+          <span>${formatCurrency(simExp.p10)}</span>
+          <span class="forecast-range-mid-label">P25–P75 band</span>
+          <span>${formatCurrency(simExp.p90)}</span>
+        </div>
+      </div>` : `<div class="forecast-empty">Not enough expense data yet.</div>`;
+  }
+
+  // ── Section subtitle ──
+  const sectionMeta = {
+    net:     `Annual net income · ${formatCurrency(avgRevMonthly)}/mo revenue avg`,
+    revenue: `Projected annual income · ${formatCurrency(avgRevMonthly)}/mo avg`,
+    expense: `Projected annual spend · ${formatCurrency(avgExpMonthly)}/mo avg`,
+  };
 
   // ── Monthly history table ──
   const monthlyRows = months.map((m, i) => {
-    const label  = new Date(m+'-15').toLocaleDateString('en-US',{month:'short',year:'numeric'});
-    const rev    = monthlyRevTotals[i];
-    const exp    = monthlyExpTotals[i];
-    const net    = monthlyNetTotals[i];
+    const label = new Date(m+'-15').toLocaleDateString('en-US',{month:'short',year:'numeric'});
+    const rev   = monthlyRevTotals[i];
+    const exp   = monthlyExpTotals[i];
+    const net   = monthlyNetTotals[i];
     return `<tr>
       <td>${label}</td>
       <td style="text-align:right;color:var(--green-dark);font-weight:600">${formatCurrency(rev)}</td>
@@ -3009,9 +3034,10 @@ function renderForecastView() {
         </div>
       </div>
 
-      ${netCards}
-      ${revCards}
-      ${expCards}
+      ${sectionTabs}
+      <p class="forecast-section-meta">${sectionMeta[section]}</p>
+
+      ${activeCards}
 
       <div class="cf-card" style="margin-top:20px">
         <div class="cf-card-head">
@@ -3034,11 +3060,11 @@ function renderForecastView() {
       <div class="cf-card" style="margin-top:16px">
         <div class="cf-card-head">
           <span class="cf-card-title">Exclude one-time costs</span>
-          <span class="cf-card-meta">Checked items are removed from simulation · ${excluded.size} excluded</span>
+          <span class="cf-card-meta">Removed from simulation · ${excluded.size} excluded</span>
         </div>
         <div class="forecast-tx-list">
           ${allExp.length === 0
-            ? '<div class="cf-empty" style="padding:16px">No transactions in this period.</div>'
+            ? '<div class="cf-empty" style="padding:16px">No expense transactions in this period.</div>'
             : txList}
         </div>
       </div>
@@ -5589,6 +5615,9 @@ function bindContentEvents() {
   // Forecast page — period selector
   content.querySelectorAll('[data-forecast-period]').forEach(btn =>
     btn.addEventListener('click', () => { state.forecastPeriods = btn.dataset.forecastPeriod; render(); })
+  );
+  content.querySelectorAll('[data-forecast-section]').forEach(btn =>
+    btn.addEventListener('click', () => { state.forecastSection = btn.dataset.forecastSection; render(); })
   );
 
   // Forecast page — exclude toggle

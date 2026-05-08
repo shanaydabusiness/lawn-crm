@@ -5475,6 +5475,41 @@ html, body {
 .forecast-section-icon { font-size: 16px; }
 .forecast-section-sub { font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 2px; }
 
+/* Section tab switcher */
+.forecast-section-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 16px 4px;
+  background: var(--off-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  width: fit-content;
+}
+.forecast-section-tab {
+  padding: 6px 16px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.forecast-section-tab.active {
+  background: var(--white);
+  color: var(--text-primary);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.forecast-section-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 16px 12px;
+}
+
 .forecast-tx-list { padding: 8px 16px 4px; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; }
 .forecast-tx-row {
   display: flex; align-items: center; gap: 10px;
