@@ -1936,6 +1936,12 @@ function renderExpenseFormPanel(exp = {}) {
   const cat     = exp.category || 'equipment';
   const isIncome = type === 'income';
 
+  const data    = getData();
+  const budgets = data.budgets || [];
+  const budgetOptions = budgets.map(b =>
+    `<option value="${b.id}"${exp.budgetId===b.id?' selected':''}>${b.icon||'💰'} ${escHtml(b.name)}</option>`
+  ).join('');
+
   const catPills = EXPENSE_CATEGORIES.map(c => `
     <button type="button" class="ef-cat-pill${cat === c.id ? ' active' : ''}" data-ef-cat="${c.id}">
       <span class="ef-cat-emoji">${c.emoji}</span>
@@ -2002,6 +2008,15 @@ function renderExpenseFormPanel(exp = {}) {
         <div class="ef-label">Category</div>
         <div class="ef-cat-grid">${catPills}</div>
         <input type="hidden" id="ef-category" value="${cat}" />
+      </div>
+
+      <!-- Budget tagging (hidden for income) -->
+      <div class="ef-section" id="ef-budget-section"${isIncome ? ' style="display:none"' : ''}>
+        <div class="ef-label">Add to Budget <span class="ef-optional">optional</span></div>
+        <select class="ef-select" id="ef-budget-id">
+          <option value="">— Don't add to budget —</option>
+          ${budgetOptions}
+        </select>
       </div>
 
       <!-- Notes -->
@@ -2789,6 +2804,33 @@ function runMonteCarlo(samples, months = 12, sims = 2000) {
   };
 }
 
+// Run paired Monte Carlo for net income (revenue - expenses, correlated per month)
+function runMonteCarloNet(revSamples, expSamples, months = 12, sims = 2000) {
+  if (!revSamples.length && !expSamples.length) return null;
+  const revPool = revSamples.length ? revSamples : [0];
+  const expPool = expSamples.length ? expSamples : [0];
+  const results = [];
+  for (let s = 0; s < sims; s++) {
+    let rev = 0, exp = 0;
+    for (let m = 0; m < months; m++) {
+      rev += revPool[Math.floor(Math.random() * revPool.length)];
+      exp += expPool[Math.floor(Math.random() * expPool.length)];
+    }
+    results.push(rev - exp);
+  }
+  results.sort((a, b) => a - b);
+  const p = pct => results[Math.floor(sims * pct)];
+  return {
+    p10: p(0.10), p25: p(0.25), p50: p(0.50), p75: p(0.75), p90: p(0.90),
+    mean: results.reduce((a, b) => a + b, 0) / sims,
+  };
+}
+
+function fmtNet(v) {
+  const abs = formatCurrency(Math.abs(v));
+  return v >= 0 ? `<span style="color:var(--green-dark)">${abs}</span>` : `<span style="color:var(--danger)">−${abs}</span>`;
+}
+
 function renderForecastView() {
   const data     = getData();
   const lookback = state.forecastPeriods || '6M';
@@ -2805,66 +2847,142 @@ function renderForecastView() {
   const endISO   = todayISO();
 
   const allExp = (data.expenses || []).filter(e => e.type !== 'income' && e.date >= startISO && e.date <= endISO);
+  const allRev = (data.expenses || []).filter(e => e.type === 'income'  && e.date >= startISO && e.date <= endISO);
 
-  const monthlyTotals = months.map(m =>
+  const monthlyExpTotals = months.map(m =>
     allExp.filter(e => !excluded.has(e.id) && e.date.startsWith(m))
           .reduce((s, e) => s + (e.amount||0), 0)
   );
+  const monthlyRevTotals = months.map(m =>
+    allRev.filter(e => e.date.startsWith(m))
+          .reduce((s, e) => s + (e.amount||0), 0)
+  );
+  const monthlyNetTotals = months.map((_, i) => monthlyRevTotals[i] - monthlyExpTotals[i]);
 
-  const nonZero  = monthlyTotals.filter(v => v > 0);
-  const sim      = runMonteCarlo(nonZero);
-  const avgMonthly = nonZero.length ? nonZero.reduce((a,b)=>a+b,0)/nonZero.length : 0;
+  const expNonZero = monthlyExpTotals.filter(v => v > 0);
+  const revNonZero = monthlyRevTotals.filter(v => v > 0);
 
-  const simCards = sim ? `
+  const simExp = runMonteCarlo(expNonZero);
+  const simRev = runMonteCarlo(revNonZero.length ? revNonZero : [0]);
+  const simNet = runMonteCarloNet(
+    revNonZero.length ? revNonZero : [0],
+    expNonZero.length ? expNonZero : [0]
+  );
+
+  const avgExpMonthly = expNonZero.length ? expNonZero.reduce((a,b)=>a+b,0)/expNonZero.length : 0;
+  const avgRevMonthly = revNonZero.length ? revNonZero.reduce((a,b)=>a+b,0)/revNonZero.length : 0;
+
+  // ── Net Income forecast cards ──
+  const netCards = simNet ? `
+    <div class="forecast-section-label">
+      <span class="forecast-section-icon">📊</span> Net Income Forecast
+      <span class="forecast-section-sub">Annual revenue minus expenses · 2,000 simulations</span>
+    </div>
+    <div class="forecast-sim-grid">
+      <div class="forecast-sim-card${simNet.p10>=0?' green':' red'}">
+        <div class="forecast-sim-label">Conservative (P10)</div>
+        <div class="forecast-sim-value">${fmtNet(simNet.p10)}</div>
+        <div class="forecast-sim-sub">Low-revenue scenario</div>
+      </div>
+      <div class="forecast-sim-card${simNet.p50>=0?' blue':' red'}">
+        <div class="forecast-sim-label">Median (P50)</div>
+        <div class="forecast-sim-value">${fmtNet(simNet.p50)}</div>
+        <div class="forecast-sim-sub">Most likely net income</div>
+      </div>
+      <div class="forecast-sim-card${simNet.p90>=0?' green':' amber'}">
+        <div class="forecast-sim-label">Optimistic (P90)</div>
+        <div class="forecast-sim-value">${fmtNet(simNet.p90)}</div>
+        <div class="forecast-sim-sub">High-revenue scenario</div>
+      </div>
+      <div class="forecast-sim-card">
+        <div class="forecast-sim-label">Simulated mean</div>
+        <div class="forecast-sim-value">${fmtNet(simNet.mean)}</div>
+        <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
+      </div>
+    </div>` : `<div class="forecast-empty">Log income transactions to unlock net income forecast.</div>`;
+
+  // ── Revenue forecast cards ──
+  const revCards = (revNonZero.length && simRev) ? `
+    <div class="forecast-section-label" style="margin-top:20px">
+      <span class="forecast-section-icon">💵</span> Revenue Forecast
+      <span class="forecast-section-sub">Projected annual income · ${formatCurrency(avgRevMonthly)}/mo avg</span>
+    </div>
+    <div class="forecast-sim-grid">
+      <div class="forecast-sim-card amber">
+        <div class="forecast-sim-label">Conservative (P10)</div>
+        <div class="forecast-sim-value">${formatCurrency(simRev.p10)}</div>
+        <div class="forecast-sim-sub">Low-revenue scenario</div>
+      </div>
+      <div class="forecast-sim-card blue">
+        <div class="forecast-sim-label">Median (P50)</div>
+        <div class="forecast-sim-value">${formatCurrency(simRev.p50)}</div>
+        <div class="forecast-sim-sub">Most likely annual revenue</div>
+      </div>
+      <div class="forecast-sim-card green">
+        <div class="forecast-sim-label">Optimistic (P90)</div>
+        <div class="forecast-sim-value">${formatCurrency(simRev.p90)}</div>
+        <div class="forecast-sim-sub">High-revenue scenario</div>
+      </div>
+      <div class="forecast-sim-card">
+        <div class="forecast-sim-label">Simulated mean</div>
+        <div class="forecast-sim-value">${formatCurrency(simRev.mean)}</div>
+        <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
+      </div>
+    </div>` : '';
+
+  // ── Expense forecast cards ──
+  const expCards = simExp ? `
+    <div class="forecast-section-label" style="margin-top:20px">
+      <span class="forecast-section-icon">🧾</span> Expense Forecast
+      <span class="forecast-section-sub">Projected annual spend · ${formatCurrency(avgExpMonthly)}/mo avg</span>
+    </div>
     <div class="forecast-sim-grid">
       <div class="forecast-sim-card green">
         <div class="forecast-sim-label">Optimistic (P10)</div>
-        <div class="forecast-sim-value">${formatCurrency(sim.p10)}</div>
+        <div class="forecast-sim-value">${formatCurrency(simExp.p10)}</div>
         <div class="forecast-sim-sub">Low-spend scenario</div>
       </div>
       <div class="forecast-sim-card blue">
         <div class="forecast-sim-label">Median (P50)</div>
-        <div class="forecast-sim-value">${formatCurrency(sim.p50)}</div>
+        <div class="forecast-sim-value">${formatCurrency(simExp.p50)}</div>
         <div class="forecast-sim-sub">Most likely annual spend</div>
       </div>
       <div class="forecast-sim-card amber">
         <div class="forecast-sim-label">Conservative (P90)</div>
-        <div class="forecast-sim-value">${formatCurrency(sim.p90)}</div>
+        <div class="forecast-sim-value">${formatCurrency(simExp.p90)}</div>
         <div class="forecast-sim-sub">High-spend scenario</div>
       </div>
       <div class="forecast-sim-card">
         <div class="forecast-sim-label">Simulated mean</div>
-        <div class="forecast-sim-value">${formatCurrency(sim.mean)}</div>
+        <div class="forecast-sim-value">${formatCurrency(simExp.mean)}</div>
         <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
       </div>
     </div>
     <div class="forecast-range-bar-wrap">
       <div class="forecast-range-label">Annual spend range</div>
       <div class="forecast-range-bar">
-        <div class="forecast-range-fill" style="left:0;width:${sim.p90>0?Math.round((sim.p25/sim.p90)*100):0}%;background:#d1fae5"></div>
-        <div class="forecast-range-fill forecast-range-mid" style="left:${sim.p90>0?Math.round((sim.p25/sim.p90)*100):0}%;width:${sim.p90>0?Math.round(((sim.p75-sim.p25)/sim.p90)*100):0}%;background:#6366f1"></div>
-        <div class="forecast-range-marker" style="left:${sim.p90>0?Math.round((sim.p50/sim.p90)*100):50}%" title="P50: ${formatCurrency(sim.p50)}"></div>
+        <div class="forecast-range-fill" style="left:0;width:${simExp.p90>0?Math.round((simExp.p25/simExp.p90)*100):0}%;background:#d1fae5"></div>
+        <div class="forecast-range-fill forecast-range-mid" style="left:${simExp.p90>0?Math.round((simExp.p25/simExp.p90)*100):0}%;width:${simExp.p90>0?Math.round(((simExp.p75-simExp.p25)/simExp.p90)*100):0}%;background:#6366f1"></div>
+        <div class="forecast-range-marker" style="left:${simExp.p90>0?Math.round((simExp.p50/simExp.p90)*100):50}%" title="P50: ${formatCurrency(simExp.p50)}"></div>
       </div>
       <div class="forecast-range-ends">
-        <span>${formatCurrency(sim.p10)}</span>
+        <span>${formatCurrency(simExp.p10)}</span>
         <span class="forecast-range-mid-label">P25–P75 band</span>
-        <span>${formatCurrency(sim.p90)}</span>
+        <span>${formatCurrency(simExp.p90)}</span>
       </div>
-    </div>`
-    : `<div class="forecast-empty">Not enough expense data yet — add transactions and they'll appear here.</div>`;
+    </div>` : `<div class="forecast-empty" style="margin-top:20px">Not enough expense data yet — add transactions and they'll appear here.</div>`;
 
+  // ── Monthly history table ──
   const monthlyRows = months.map((m, i) => {
-    const label   = new Date(m+'-15').toLocaleDateString('en-US',{month:'short',year:'numeric'});
-    const actual  = monthlyTotals[i];
-    const p50mo   = sim ? sim.p50 / 12 : 0;
-    const diff    = actual - p50mo;
+    const label  = new Date(m+'-15').toLocaleDateString('en-US',{month:'short',year:'numeric'});
+    const rev    = monthlyRevTotals[i];
+    const exp    = monthlyExpTotals[i];
+    const net    = monthlyNetTotals[i];
     return `<tr>
       <td>${label}</td>
-      <td style="text-align:right;font-weight:600">${formatCurrency(actual)}</td>
-      <td style="text-align:right;color:var(--text-muted)">${sim ? formatCurrency(p50mo) : '—'}</td>
-      <td style="text-align:right;color:${diff>0?'var(--danger)':'var(--green-dark)'}">
-        ${sim ? (diff>0?'↑':'↓')+formatCurrency(Math.abs(diff)) : '—'}
-      </td>
+      <td style="text-align:right;color:var(--green-dark);font-weight:600">${formatCurrency(rev)}</td>
+      <td style="text-align:right;color:var(--danger)">${formatCurrency(exp)}</td>
+      <td style="text-align:right;font-weight:700;color:${net>=0?'var(--green-dark)':'var(--danger)'}">${net>=0?'':'−'}${formatCurrency(Math.abs(net))}</td>
     </tr>`;
   }).join('');
 
@@ -2880,7 +2998,7 @@ function renderForecastView() {
     <div class="cf-wrap">
       <div class="cf-header">
         <div class="cf-header-left">
-          <h1 class="cf-title">Spend Forecast</h1>
+          <h1 class="cf-title">Forecast</h1>
           <p class="cf-subtitle">Monte Carlo · 2,000 simulations · ${monthCount}mo history</p>
         </div>
         <div class="cf-header-right">
@@ -2891,16 +3009,23 @@ function renderForecastView() {
         </div>
       </div>
 
-      ${simCards}
+      ${netCards}
+      ${revCards}
+      ${expCards}
 
-      <div class="cf-card" style="margin-top:16px">
+      <div class="cf-card" style="margin-top:20px">
         <div class="cf-card-head">
-          <span class="cf-card-title">Monthly history vs P50</span>
-          <span class="cf-card-meta">${formatCurrency(avgMonthly)}/mo avg</span>
+          <span class="cf-card-title">Monthly history</span>
+          <span class="cf-card-meta">${monthCount} months</span>
         </div>
         <div class="cf-table-scroll">
           <table class="cf-table">
-            <thead><tr><th>Month</th><th style="text-align:right">Actual</th><th style="text-align:right">P50/mo</th><th style="text-align:right">Diff</th></tr></thead>
+            <thead><tr>
+              <th>Month</th>
+              <th style="text-align:right;color:var(--green-dark)">Revenue</th>
+              <th style="text-align:right;color:var(--danger)">Expenses</th>
+              <th style="text-align:right">Net</th>
+            </tr></thead>
             <tbody>${monthlyRows || '<tr><td colspan="4" class="cf-td-empty">No data in this period.</td></tr>'}</tbody>
           </table>
         </div>
@@ -5818,6 +5943,7 @@ function saveExpenseFromForm(expenseId) {
   const d = getData();
   if (!d.expenses) d.expenses = [];
 
+  const budgetId = document.getElementById('ef-budget-id')?.value || '';
   const expData = {
     type: document.getElementById('ef-type').value || 'expense',
     category: document.getElementById('ef-category').value || 'other',
@@ -5826,15 +5952,34 @@ function saveExpenseFromForm(expenseId) {
     date: document.getElementById('ef-date').value || todayISO(),
     notes: document.getElementById('ef-notes').value.trim(),
     recurring: document.getElementById('ef-recurring').checked,
+    budgetId: budgetId || undefined,
   };
 
+  let savedExpenseId = expenseId;
   if (expenseId) {
     const exp = d.expenses.find(e => e.id === expenseId);
     if (exp) Object.assign(exp, expData);
     showToast('Transaction updated');
   } else {
-    d.expenses.push({ id: generateId(), ...expData, createdAt: new Date().toISOString() });
+    const newExp = { id: generateId(), ...expData, createdAt: new Date().toISOString() };
+    savedExpenseId = newExp.id;
+    d.expenses.push(newExp);
     showToast('Transaction added!');
+  }
+
+  // Auto-log to budget if a budget was selected and it's an expense
+  if (budgetId && expData.type !== 'income') {
+    if (!d.budgetEntries) d.budgetEntries = [];
+    // Avoid duplicate entries when editing — remove old auto-entry for this expense
+    d.budgetEntries = d.budgetEntries.filter(e => e.sourceExpenseId !== savedExpenseId);
+    d.budgetEntries.push({
+      id: generateId(),
+      budgetId,
+      description: expData.description || 'Cash flow expense',
+      amount,
+      date: expData.date,
+      sourceExpenseId: savedExpenseId,
+    });
   }
 
   saveData(d);
@@ -5860,9 +6005,11 @@ function bindModalEvents() {
         b.classList.remove('active', 'expense', 'income');
       });
       btn.classList.add('active', t);
-      // Show/hide category section
+      // Show/hide category + budget sections
       const catSection = sheet.querySelector('#ef-cat-section');
       if (catSection) catSection.style.display = t === 'income' ? 'none' : '';
+      const budgetSection = sheet.querySelector('#ef-budget-section');
+      if (budgetSection) budgetSection.style.display = t === 'income' ? 'none' : '';
     });
   });
 
