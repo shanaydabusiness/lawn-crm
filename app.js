@@ -59,6 +59,9 @@ let state = {
   editingExpenseId: null,
   dashCalMonth: new Date().getMonth(),
   dashCalYear: new Date().getFullYear(),
+  budgetMonth: new Date().toISOString().slice(0, 7),
+  forecastPeriods: '6M',
+  forecastExcluded: [],
 };
 
 // ===== DATA =====
@@ -93,7 +96,9 @@ function loadData() {
       if (!d.scheduledJobs) d.scheduledJobs = [];
       if (!d.timeEntries) d.timeEntries = [];
       if (d.activeClockIn === undefined) d.activeClockIn = null;
-      // activeClockIn shape: { startTime: ISO string, clientId: string|null } | null
+      if (!d.todos) d.todos = [];
+      if (!d.budgets) d.budgets = [];
+      if (!d.budgetEntries) d.budgetEntries = [];
       return d;
     }
   } catch (e) {}
@@ -2456,10 +2461,7 @@ function renderDebtView() {
           <p class="cf-subtitle">Loans, payments &amp; payoff estimates</p>
         </div>
         <div class="cf-header-right">
-          <div class="cf-tab-group">
-            <button class="cf-tab-btn" data-exp-tab="cashflow">Cash Flow</button>
-            <button class="cf-tab-btn active" data-exp-tab="debt">Debt</button>
-          </div>
+          ${expTabBar('debt')}
           <button class="cf-add-btn" id="debt-add-btn">
             <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;flex-shrink:0"><line x1="7" y1="1" x2="7" y2="13"/><line x1="1" y1="7" x2="13" y2="7"/></svg>
             Add debt
@@ -2577,6 +2579,346 @@ function renderDebtForm(debt = {}) {
       <button class="btn btn-primary ${isEdit ? '' : 'btn-full'}" style="${isEdit ? 'flex:1' : ''}" id="df-save-btn" data-debt-id="${debt.id || ''}">
         ${isEdit ? 'Save Changes' : 'Add Debt'}
       </button>
+    </div>`;
+}
+
+// ===== BUDGET VIEW =====
+function renderBudgetView() {
+  const data    = getData();
+  const budgets = data.budgets || [];
+  const entries = data.budgetEntries || [];
+  const month   = state.budgetMonth || new Date().toISOString().slice(0, 7);
+
+  const monthDate  = new Date(month + '-15');
+  const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const prev = new Date(monthDate); prev.setMonth(prev.getMonth() - 1);
+  const next = new Date(monthDate); next.setMonth(next.getMonth() + 1);
+  const isCurrent = month === new Date().toISOString().slice(0, 7);
+
+  const totalAllocated = budgets.reduce((s, b) => s + (b.monthlyLimit || 0), 0);
+  const totalSpent = budgets.reduce((s, b) =>
+    s + entries.filter(e => e.budgetId === b.id && e.date.startsWith(month))
+               .reduce((ss, e) => ss + (e.amount || 0), 0), 0);
+
+  const budgetCards = budgets.length === 0
+    ? `<div class="budget-empty">No budgets yet — hit <strong>+ Add Budget</strong> to create your first envelope.</div>`
+    : budgets.map(b => {
+        const bEntries = entries.filter(e => e.budgetId === b.id && e.date.startsWith(month))
+                                .sort((a, x) => x.date.localeCompare(a.date));
+        const spent     = bEntries.reduce((s, e) => s + (e.amount || 0), 0);
+        const remaining = b.monthlyLimit - spent;
+        const pct       = b.monthlyLimit > 0 ? Math.min(Math.round((spent / b.monthlyLimit) * 100), 100) : 0;
+        const over      = remaining < 0;
+
+        const entryRows = bEntries.slice(0, 5).map(e => `
+          <div class="budget-entry-row">
+            <span class="budget-entry-date">${new Date(e.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+            <span class="budget-entry-desc">${escHtml(e.description||'Spend')}</span>
+            <span class="budget-entry-amt">−${formatCurrency(e.amount)}</span>
+            <button class="budget-entry-del" data-bentry-del="${e.id}" title="Remove">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>`).join('');
+
+        return `
+          <div class="budget-card" style="border-top:3px solid ${b.color}">
+            <div class="budget-card-head">
+              <div class="budget-card-name">${b.icon || '💰'} ${escHtml(b.name)}</div>
+              <div style="display:flex;gap:2px">
+                <button class="debt-action-btn" data-budget-edit="${b.id}" title="Edit">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button class="debt-action-btn debt-action-del" data-budget-del="${b.id}" title="Delete">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="budget-amounts">
+              <span class="budget-spent${over?' over':''}">${formatCurrency(spent)}</span>
+              <span class="budget-of">/ ${formatCurrency(b.monthlyLimit)}</span>
+            </div>
+            <div class="budget-bar-track">
+              <div class="budget-bar-fill${over?' over':''}" style="width:${pct}%;background:${b.color}"></div>
+            </div>
+            <div class="budget-bar-labels">
+              <span class="budget-pct">${pct}% used</span>
+              <span class="budget-remaining${over?' over':''}">${over ? '−'+formatCurrency(Math.abs(remaining))+' over budget' : formatCurrency(remaining)+' remaining'}</span>
+            </div>
+            ${bEntries.length > 0 ? `<div class="budget-entries">${entryRows}</div>` : ''}
+            <button class="budget-log-btn" data-budget-log="${b.id}" style="border-color:${b.color};color:${b.color}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Log Spend
+            </button>
+          </div>`;
+      }).join('');
+
+  return `
+    <div class="cf-wrap">
+      <div class="cf-header">
+        <div class="cf-header-left">
+          <h1 class="cf-title">Budget Tracker</h1>
+          <p class="cf-subtitle">Monthly spend envelopes</p>
+        </div>
+        <div class="cf-header-right">
+          ${expTabBar('budget')}
+          <button class="cf-add-btn" id="budget-add-btn">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;flex-shrink:0"><line x1="7" y1="1" x2="7" y2="13"/><line x1="1" y1="7" x2="13" y2="7"/></svg>
+            Add Budget
+          </button>
+        </div>
+      </div>
+
+      <div class="budget-month-nav">
+        <button class="budget-month-btn" data-budget-month="${prev.toISOString().slice(0,7)}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="budget-month-label">${monthLabel}</span>
+        <button class="budget-month-btn" ${isCurrent?'disabled':''} data-budget-month="${isCurrent?'':next.toISOString().slice(0,7)}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+
+      ${budgets.length > 0 ? `
+      <div class="debt-summary-grid">
+        <div class="cf-metric"><span class="cf-metric-label">Allocated / mo</span><span class="cf-metric-value">${formatCurrency(totalAllocated)}</span></div>
+        <div class="cf-metric"><span class="cf-metric-label">Spent this month</span><span class="cf-metric-value">${formatCurrency(totalSpent)}</span></div>
+        <div class="cf-metric"><span class="cf-metric-label">Remaining</span><span class="cf-metric-value" style="color:${totalAllocated-totalSpent>=0?'var(--green-dark)':'var(--danger)'}">${formatCurrency(totalAllocated-totalSpent)}</span></div>
+        <div class="cf-metric"><span class="cf-metric-label">Budgets</span><span class="cf-metric-value">${budgets.length}</span></div>
+      </div>` : ''}
+
+      <div class="budget-cards-grid">${budgetCards}</div>
+      <div class="spacer"></div>
+    </div>`;
+}
+
+function renderBudgetForm(b = {}) {
+  const isEdit  = !!b.id;
+  const selColor = b.color || BUDGET_COLORS[0];
+  return `
+    <div class="sheet-header">
+      <div><h2>${isEdit ? 'Edit Budget' : 'New Budget'}</h2>
+        <p class="sheet-header-sub">Set a monthly spending envelope</p></div>
+      <button class="sheet-close" id="sheet-close-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="form-body">
+      <div class="form-group">
+        <label class="form-label">Budget name *</label>
+        <input class="form-input" id="bf-name" type="text" placeholder="e.g. Trading, Marketing, Tools" value="${escHtml(b.name||'')}" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Icon <span class="form-label-opt">emoji</span></label>
+        <input class="form-input" id="bf-icon" type="text" placeholder="💰" value="${escHtml(b.icon||'')}" style="max-width:80px" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Monthly limit *</label>
+        <div class="form-prefix-wrap">
+          <span class="form-prefix">$</span>
+          <input class="form-input" id="bf-limit" type="number" placeholder="500" min="0" step="1" inputmode="decimal" value="${b.monthlyLimit||''}" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Color</label>
+        <div class="bf-color-grid" id="bf-color-grid">
+          ${BUDGET_COLORS.map(c => `<button class="bf-color-swatch${c===selColor?' selected':''}" data-bf-color="${c}" style="background:${c}" title="${c}"></button>`).join('')}
+        </div>
+        <input type="hidden" id="bf-color" value="${selColor}" />
+      </div>
+    </div>
+    <div class="sheet-footer" style="${isEdit?'display:flex;gap:8px':''}">
+      ${isEdit ? `<button class="btn btn-danger-outline" id="bf-del-btn" data-budget-id="${b.id}">Delete</button>` : ''}
+      <button class="btn btn-primary${isEdit?'':' btn-full'}" style="${isEdit?'flex:1':''}" id="bf-save-btn" data-budget-id="${b.id||''}">
+        ${isEdit ? 'Save Changes' : 'Create Budget'}
+      </button>
+    </div>`;
+}
+
+function renderBudgetLogForm(budgetId) {
+  const data   = getData();
+  const budget = (data.budgets || []).find(b => b.id === budgetId) || {};
+  const month  = state.budgetMonth || new Date().toISOString().slice(0, 7);
+  const entries = (data.budgetEntries || []).filter(e => e.budgetId === budgetId && e.date.startsWith(month));
+  const spent   = entries.reduce((s, e) => s + (e.amount||0), 0);
+  const remaining = (budget.monthlyLimit||0) - spent;
+  return `
+    <div class="sheet-header">
+      <div><h2>Log Spend</h2>
+        <p class="sheet-header-sub">${escHtml(budget.name||'')} · ${formatCurrency(remaining)} remaining</p></div>
+      <button class="sheet-close" id="sheet-close-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="form-body">
+      <div class="form-group">
+        <label class="form-label">Amount *</label>
+        <div class="form-prefix-wrap">
+          <span class="form-prefix">$</span>
+          <input class="form-input" id="bl-amount" type="number" placeholder="0.00" min="0" step="0.01" inputmode="decimal" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description <span class="form-label-opt">optional</span></label>
+        <input class="form-input" id="bl-desc" type="text" placeholder="What was this spend?" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" id="bl-date" type="date" value="${todayISO()}" />
+      </div>
+    </div>
+    <div class="sheet-footer">
+      <button class="btn btn-primary btn-full" id="bl-save-btn" data-budget-id="${budgetId}">Log Spend</button>
+    </div>`;
+}
+
+// ===== FORECAST VIEW =====
+function runMonteCarlo(samples, months = 12, sims = 2000) {
+  if (!samples.length) return null;
+  const results = [];
+  for (let s = 0; s < sims; s++) {
+    let total = 0;
+    for (let m = 0; m < months; m++)
+      total += samples[Math.floor(Math.random() * samples.length)];
+    results.push(total);
+  }
+  results.sort((a, b) => a - b);
+  const p = pct => results[Math.floor(sims * pct)];
+  return {
+    p10: p(0.10), p25: p(0.25), p50: p(0.50), p75: p(0.75), p90: p(0.90),
+    mean: results.reduce((a, b) => a + b, 0) / sims,
+  };
+}
+
+function renderForecastView() {
+  const data     = getData();
+  const lookback = state.forecastPeriods || '6M';
+  const excluded = new Set(state.forecastExcluded || []);
+  const now      = new Date();
+
+  const monthCount = lookback === '3M' ? 3 : lookback === '12M' ? 12 : 6;
+  const months = [];
+  for (let i = monthCount - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  const startISO = months[0] + '-01';
+  const endISO   = todayISO();
+
+  const allExp = (data.expenses || []).filter(e => e.type !== 'income' && e.date >= startISO && e.date <= endISO);
+
+  const monthlyTotals = months.map(m =>
+    allExp.filter(e => !excluded.has(e.id) && e.date.startsWith(m))
+          .reduce((s, e) => s + (e.amount||0), 0)
+  );
+
+  const nonZero  = monthlyTotals.filter(v => v > 0);
+  const sim      = runMonteCarlo(nonZero);
+  const avgMonthly = nonZero.length ? nonZero.reduce((a,b)=>a+b,0)/nonZero.length : 0;
+
+  const simCards = sim ? `
+    <div class="forecast-sim-grid">
+      <div class="forecast-sim-card green">
+        <div class="forecast-sim-label">Optimistic (P10)</div>
+        <div class="forecast-sim-value">${formatCurrency(sim.p10)}</div>
+        <div class="forecast-sim-sub">Low-spend scenario</div>
+      </div>
+      <div class="forecast-sim-card blue">
+        <div class="forecast-sim-label">Median (P50)</div>
+        <div class="forecast-sim-value">${formatCurrency(sim.p50)}</div>
+        <div class="forecast-sim-sub">Most likely annual spend</div>
+      </div>
+      <div class="forecast-sim-card amber">
+        <div class="forecast-sim-label">Conservative (P90)</div>
+        <div class="forecast-sim-value">${formatCurrency(sim.p90)}</div>
+        <div class="forecast-sim-sub">High-spend scenario</div>
+      </div>
+      <div class="forecast-sim-card">
+        <div class="forecast-sim-label">Simulated mean</div>
+        <div class="forecast-sim-value">${formatCurrency(sim.mean)}</div>
+        <div class="forecast-sim-sub">Avg of 2,000 simulations</div>
+      </div>
+    </div>
+    <div class="forecast-range-bar-wrap">
+      <div class="forecast-range-label">Annual spend range</div>
+      <div class="forecast-range-bar">
+        <div class="forecast-range-fill" style="left:0;width:${sim.p90>0?Math.round((sim.p25/sim.p90)*100):0}%;background:#d1fae5"></div>
+        <div class="forecast-range-fill forecast-range-mid" style="left:${sim.p90>0?Math.round((sim.p25/sim.p90)*100):0}%;width:${sim.p90>0?Math.round(((sim.p75-sim.p25)/sim.p90)*100):0}%;background:#6366f1"></div>
+        <div class="forecast-range-marker" style="left:${sim.p90>0?Math.round((sim.p50/sim.p90)*100):50}%" title="P50: ${formatCurrency(sim.p50)}"></div>
+      </div>
+      <div class="forecast-range-ends">
+        <span>${formatCurrency(sim.p10)}</span>
+        <span class="forecast-range-mid-label">P25–P75 band</span>
+        <span>${formatCurrency(sim.p90)}</span>
+      </div>
+    </div>`
+    : `<div class="forecast-empty">Not enough expense data yet — add transactions and they'll appear here.</div>`;
+
+  const monthlyRows = months.map((m, i) => {
+    const label   = new Date(m+'-15').toLocaleDateString('en-US',{month:'short',year:'numeric'});
+    const actual  = monthlyTotals[i];
+    const p50mo   = sim ? sim.p50 / 12 : 0;
+    const diff    = actual - p50mo;
+    return `<tr>
+      <td>${label}</td>
+      <td style="text-align:right;font-weight:600">${formatCurrency(actual)}</td>
+      <td style="text-align:right;color:var(--text-muted)">${sim ? formatCurrency(p50mo) : '—'}</td>
+      <td style="text-align:right;color:${diff>0?'var(--danger)':'var(--green-dark)'}">
+        ${sim ? (diff>0?'↑':'↓')+formatCurrency(Math.abs(diff)) : '—'}
+      </td>
+    </tr>`;
+  }).join('');
+
+  const txList = [...allExp].sort((a,b)=>b.amount-a.amount).slice(0,30).map(tx => `
+    <div class="forecast-tx-row${excluded.has(tx.id)?' excluded':''}">
+      <input type="checkbox" class="forecast-tx-check" data-excl-toggle="${tx.id}" ${excluded.has(tx.id)?'checked':''} />
+      <span class="forecast-tx-date">${formatDate(tx.date)}</span>
+      <span class="forecast-tx-desc">${escHtml(tx.description||tx.category||'')}</span>
+      <span class="forecast-tx-amt">${formatCurrency(tx.amount)}</span>
+    </div>`).join('');
+
+  return `
+    <div class="cf-wrap">
+      <div class="cf-header">
+        <div class="cf-header-left">
+          <h1 class="cf-title">Spend Forecast</h1>
+          <p class="cf-subtitle">Monte Carlo · 2,000 simulations · ${monthCount}mo history</p>
+        </div>
+        <div class="cf-header-right">
+          ${expTabBar('forecast')}
+          <div class="cf-period-group">
+            ${['3M','6M','12M'].map(p=>`<button class="cf-period-btn${lookback===p?' active':''}" data-forecast-period="${p}">${p}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      ${simCards}
+
+      <div class="cf-card" style="margin-top:16px">
+        <div class="cf-card-head">
+          <span class="cf-card-title">Monthly history vs P50</span>
+          <span class="cf-card-meta">${formatCurrency(avgMonthly)}/mo avg</span>
+        </div>
+        <div class="cf-table-scroll">
+          <table class="cf-table">
+            <thead><tr><th>Month</th><th style="text-align:right">Actual</th><th style="text-align:right">P50/mo</th><th style="text-align:right">Diff</th></tr></thead>
+            <tbody>${monthlyRows || '<tr><td colspan="4" class="cf-td-empty">No data in this period.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="cf-card" style="margin-top:16px">
+        <div class="cf-card-head">
+          <span class="cf-card-title">Exclude one-time costs</span>
+          <span class="cf-card-meta">Checked items are removed from simulation · ${excluded.size} excluded</span>
+        </div>
+        <div class="forecast-tx-list">
+          ${allExp.length === 0
+            ? '<div class="cf-empty" style="padding:16px">No transactions in this period.</div>'
+            : txList}
+        </div>
+      </div>
+
+      <div class="spacer"></div>
     </div>`;
 }
 
@@ -3103,9 +3445,22 @@ function renderTools() {
 }
 
 // ===== EXPENSES VIEW =====
+const BUDGET_COLORS = ['#6366f1','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f97316','#14b8a6','#ef4444','#84cc16'];
+
+function expTabBar(active) {
+  return `<div class="cf-tab-group">
+    <button class="cf-tab-btn${active==='cashflow'?' active':''}" data-exp-tab="cashflow">Cash Flow</button>
+    <button class="cf-tab-btn${active==='debt'?' active':''}" data-exp-tab="debt">Debt</button>
+    <button class="cf-tab-btn${active==='budget'?' active':''}" data-exp-tab="budget">Budget</button>
+    <button class="cf-tab-btn${active==='forecast'?' active':''}" data-exp-tab="forecast">Forecast</button>
+  </div>`;
+}
+
 function renderExpenses() {
   const tab = state.expensesTab || 'cashflow';
-  if (tab === 'debt') return renderDebtView();
+  if (tab === 'debt')     return renderDebtView();
+  if (tab === 'budget')   return renderBudgetView();
+  if (tab === 'forecast') return renderForecastView();
 
   const cd     = computeExpensesData();
   const period = state.expensesPeriod || '3M';
@@ -3199,10 +3554,7 @@ function renderExpenses() {
           <p class="cf-subtitle">Financial overview — all accounts</p>
         </div>
         <div class="cf-header-right">
-          <div class="cf-tab-group">
-            <button class="cf-tab-btn active" data-exp-tab="cashflow">Cash Flow</button>
-            <button class="cf-tab-btn" data-exp-tab="debt">Debt</button>
-          </div>
+          ${expTabBar('cashflow')}
           <div class="cf-period-group">
             ${PERIODS.map(p => `<button class="cf-period-btn${period === p ? ' active' : ''}" data-cf-period="${p}">${p}</button>`).join('')}
           </div>
@@ -4318,6 +4670,10 @@ function renderModal() {
     const d = getData();
     const debt = (d.debts || []).find(x => x.id === data.debtId) || {};
     el.innerHTML = renderDebtPaymentForm(debt);
+  } else if (type === 'budget-form') {
+    el.innerHTML = renderBudgetForm(data);
+  } else if (type === 'budget-log') {
+    el.innerHTML = renderBudgetLogForm(data.budgetId);
   }
   bindModalEvents();
 }
@@ -5059,6 +5415,66 @@ function bindContentEvents() {
     openModal('debt-form', {});
   });
 
+  // Budget page — add budget
+  content.querySelector('#budget-add-btn')?.addEventListener('click', () => openModal('budget-form', {}));
+
+  // Budget page — edit budget
+  content.querySelectorAll('[data-budget-edit]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      const d = getData();
+      const b = (d.budgets||[]).find(x => x.id === btn.dataset.budgetEdit) || {};
+      openModal('budget-form', b);
+    })
+  );
+
+  // Budget page — delete budget
+  content.querySelectorAll('[data-budget-del]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      const d = getData();
+      d.budgets = (d.budgets||[]).filter(b => b.id !== btn.dataset.budgetDel);
+      d.budgetEntries = (d.budgetEntries||[]).filter(e => e.budgetId !== btn.dataset.budgetDel);
+      saveData(d); render(); showToast('Budget removed');
+    })
+  );
+
+  // Budget page — log spend button
+  content.querySelectorAll('[data-budget-log]').forEach(btn =>
+    btn.addEventListener('click', () => openModal('budget-log', { budgetId: btn.dataset.budgetLog }))
+  );
+
+  // Budget page — delete budget entry
+  content.querySelectorAll('[data-bentry-del]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      const d = getData();
+      d.budgetEntries = (d.budgetEntries||[]).filter(e => e.id !== btn.dataset.bentryDel);
+      saveData(d); render();
+    })
+  );
+
+  // Budget page — month nav
+  content.querySelectorAll('[data-budget-month]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      if (btn.dataset.budgetMonth) { state.budgetMonth = btn.dataset.budgetMonth; render(); }
+    })
+  );
+
+  // Forecast page — period selector
+  content.querySelectorAll('[data-forecast-period]').forEach(btn =>
+    btn.addEventListener('click', () => { state.forecastPeriods = btn.dataset.forecastPeriod; render(); })
+  );
+
+  // Forecast page — exclude toggle
+  content.querySelectorAll('[data-excl-toggle]').forEach(chk =>
+    chk.addEventListener('change', () => {
+      const id = chk.dataset.exclToggle;
+      const ex = [...(state.forecastExcluded||[])];
+      if (chk.checked) { if (!ex.includes(id)) ex.push(id); }
+      else { const i = ex.indexOf(id); if (i > -1) ex.splice(i, 1); }
+      state.forecastExcluded = ex;
+      render();
+    })
+  );
+
   // Log payment on a debt
   content.querySelectorAll('[data-debt-log-pay]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -5708,6 +6124,61 @@ function bindModalEvents() {
     state.expensesTab = 'debt';
     render();
     showToast(`Payment of ${formatCurrency(amount)} logged!`);
+  });
+
+  // Save budget
+  sheet.querySelector('#bf-save-btn')?.addEventListener('click', () => {
+    const name  = sheet.querySelector('#bf-name')?.value.trim();
+    const limit = parseFloat(sheet.querySelector('#bf-limit')?.value);
+    if (!name)           { showToast('Enter a budget name'); return; }
+    if (!limit || limit <= 0) { showToast('Enter a monthly limit'); return; }
+    const icon    = sheet.querySelector('#bf-icon')?.value.trim() || '💰';
+    const color   = sheet.querySelector('#bf-color')?.value || BUDGET_COLORS[0];
+    const budgetId = sheet.querySelector('#bf-save-btn')?.dataset.budgetId;
+    const d = getData();
+    if (!d.budgets) d.budgets = [];
+    if (budgetId) {
+      const b = d.budgets.find(x => x.id === budgetId);
+      if (b) { b.name = name; b.monthlyLimit = limit; b.icon = icon; b.color = color; }
+    } else {
+      d.budgets.push({ id: generateId(), name, monthlyLimit: limit, icon, color, createdAt: new Date().toISOString() });
+    }
+    saveData(d); closeModal(); state.expensesTab = 'budget'; render();
+    showToast(budgetId ? 'Budget updated' : 'Budget created!');
+  });
+
+  // Delete budget (from edit modal)
+  sheet.querySelector('#bf-del-btn')?.addEventListener('click', () => {
+    const budgetId = sheet.querySelector('#bf-del-btn').dataset.budgetId;
+    const d = getData();
+    d.budgets = (d.budgets||[]).filter(b => b.id !== budgetId);
+    d.budgetEntries = (d.budgetEntries||[]).filter(e => e.budgetId !== budgetId);
+    saveData(d); closeModal(); state.expensesTab = 'budget'; render();
+    showToast('Budget removed');
+  });
+
+  // Budget color swatches
+  sheet.querySelectorAll('[data-bf-color]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      sheet.querySelectorAll('[data-bf-color]').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      const colorInput = sheet.querySelector('#bf-color');
+      if (colorInput) colorInput.value = btn.dataset.bfColor;
+    })
+  );
+
+  // Log budget spend
+  sheet.querySelector('#bl-save-btn')?.addEventListener('click', () => {
+    const budgetId = sheet.querySelector('#bl-save-btn')?.dataset.budgetId;
+    const amount   = parseFloat(sheet.querySelector('#bl-amount')?.value);
+    if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
+    const desc = sheet.querySelector('#bl-desc')?.value.trim() || '';
+    const date = sheet.querySelector('#bl-date')?.value || todayISO();
+    const d = getData();
+    if (!d.budgetEntries) d.budgetEntries = [];
+    d.budgetEntries.push({ id: generateId(), budgetId, description: desc, amount, date });
+    saveData(d); closeModal(); state.expensesTab = 'budget'; render();
+    showToast(`${formatCurrency(amount)} logged!`);
   });
 
   // Quick client pay — search filter
