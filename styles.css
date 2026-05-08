@@ -3669,6 +3669,26 @@ html, body {
 .cf-tx-row-deletable:hover .cf-tx-del-btn { opacity: 1; }
 .cf-tx-del-btn:hover { background: var(--danger-pale); color: var(--danger); }
 
+.cf-tx-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+.cf-tx-edit-btn svg { width: 13px; height: 13px; }
+.cf-tx-row-deletable:hover .cf-tx-edit-btn { opacity: 1; }
+.cf-tx-edit-btn:hover { background: var(--green-xpale); color: var(--green-primary); }
+.cf-td-action { display: flex; gap: 2px; align-items: center; }
+
 /* ── Expense row chevron ── */
 .cf-exp-chevron {
   width: 14px;

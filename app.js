@@ -3663,6 +3663,9 @@ function renderExpenses() {
           </td>
           <td>${statusBadge(tx.status)}</td>
           <td class="cf-td-action">
+            ${tx.id && tx.source === 'expense' ? `<button class="cf-tx-edit-btn" data-cf-edit-tx="${tx.id}" title="Edit transaction">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>` : ''}
             ${tx.id ? `<button class="cf-tx-del-btn" data-delete-tx="${tx.id}" data-tx-source="${tx.source}" data-tx-client="${tx.clientId || ''}" title="Delete transaction">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
             </button>` : ''}
@@ -5644,6 +5647,14 @@ function bindContentEvents() {
   // Add expense button
   content.querySelector('#exp-add-mobile-btn')?.addEventListener('click', () => {
     openModal('expense-form', {});
+  });
+
+  // Edit expense row → open modal (cashflow table edit btn)
+  content.querySelectorAll('[data-cf-edit-tx]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const exp = getData().expenses.find(e => e.id === btn.dataset.cfEditTx) || {};
+      openModal('expense-form', exp);
+    });
   });
 
   // Edit expense row → open modal
